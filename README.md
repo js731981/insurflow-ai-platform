@@ -91,3 +91,7 @@ Future Enhancements
 ________________________________________
 Author
 Jai – Consulting AI Data Engineer | AI Architect (in progress)
+
+Note:
+This project is a proof-of-concept (POC) and reference implementation inspired by real-world enterprise AI systems. Actual production implementations involve confidential data and cannot be publicly shared.
+
