@@ -1,6 +1,5 @@
-"""Agent layer (decision makers).
+"""Agent layer for micro-insurance (triage, fraud signals, policy checks).
 
-Orchestrators in this layer decide what the system should do next.
-They do not execute I/O directly; that belongs in `app.services`.
+Orchestrators decide workflow; heavy I/O lives in `app.services`.
 """
 

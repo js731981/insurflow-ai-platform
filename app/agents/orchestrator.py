@@ -1,67 +1,94 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
 from typing import Any
 
 from fastapi import Depends
 
+from app.agents.decision_agent import DecisionAgent
 from app.agents.fraud_agent import FraudAgent
+from app.agents.policy_agent import PolicyAgent
 from app.core.dependencies import get_llm_service
-from app.models.schemas import FraudAnalysisResponse, InferenceRequest, InferenceResponse
+from app.models.schemas import InferenceRequest, InferenceResponse
 from app.services.llm_service import LLMService
+
+logger = logging.getLogger(__name__)
 
 
 class InsurFlowOrchestrator:
-    """Decision-making layer.
+    """Micro-insurance claim pipeline: parallel fraud + policy checks, then a decision."""
 
-    Orchestrators decide *what* to do (e.g., which model, which inputs, which workflow),
-    while `app.services` executes the actual work (LLM calls, DB calls, external APIs).
-    """
-
-    def __init__(self, llm_service: LLMService):
+    def __init__(self, llm_service: LLMService) -> None:
         self._llm_service = llm_service
-        # Decision-makers for each claim workflow step.
         self._fraud_agent = FraudAgent(llm_service=llm_service)
+        self._policy_agent = PolicyAgent()
+        self._decision_agent = DecisionAgent()
 
-    async def run(self, data: Any) -> InferenceResponse | FraudAnalysisResponse:
-        """Run the appropriate workflow for the incoming payload."""
+    async def run_inference(self, request: InferenceRequest) -> InferenceResponse:
+        provider_override: str | None = None
+        if request.task:
+            task_l = request.task.strip().lower()
+            if task_l == "cheap":
+                provider_override = "ollama"
+            elif task_l == "complex":
+                provider_override = "openai"
 
-        # 1) Existing inference workflow (kept for compatibility with /inference).
-        if isinstance(data, InferenceRequest):
-            request = data
+        completion = await self._llm_service.generate(
+            prompt=request.prompt,
+            context=request.context,
+            model=request.model,
+            provider=provider_override,
+        )
+        return InferenceResponse(
+            text=completion.text,
+            provider=completion.provider,
+            model=completion.model,
+            tokens=completion.tokens,
+            cost=completion.cost,
+            latency=completion.latency_ms,
+            confidence=completion.confidence,
+        )
 
-            # Decision makers pick parameters and workflow; executors do the I/O.
-            provider_override: str | None = None
-            if request.task:
-                task_l = request.task.strip().lower()
-                # Simple cost-optimization hook (can be expanded later).
-                if task_l == "cheap":
-                    provider_override = "ollama"
-                elif task_l == "complex":
-                    provider_override = "openai"
+    async def process_claim(self, claim: dict[str, Any]) -> dict[str, Any]:
+        """Run fraud and policy agents in parallel, then aggregate for auto-triage."""
+        workflow_start = time.perf_counter()
+        logger.info(
+            "orchestrator_claim_start",
+            extra={"claim_keys": list(claim.keys())},
+        )
 
-            completion = await self._llm_service.generate(
-                prompt=request.prompt,
-                context=request.context,
-                model=request.model,
-                provider=provider_override,
-            )
-            return InferenceResponse(
-                text=completion.text,
-                provider=completion.provider,
-                model=completion.model,
-                tokens=completion.tokens,
-                cost=completion.cost,
-                latency=completion.latency_ms,
-                confidence=completion.confidence,
-            )
+        fraud_task = self._fraud_agent.run(claim)
+        policy_task = self._policy_agent.run(claim)
+        fraud_out, policy_out = await asyncio.gather(fraud_task, policy_task)
 
-        # 2) Claim workflow (currently: fraud analysis).
-        if isinstance(data, dict):
-            return await self._fraud_agent.execute(data)
+        decision_in: dict[str, Any] = {"fraud": fraud_out, "policy": policy_out}
+        decision_out = await self._decision_agent.run(decision_in)
 
-        raise TypeError(f"Unsupported orchestrator input type: {type(data).__name__}")
+        elapsed_ms = (time.perf_counter() - workflow_start) * 1000
+        logger.info(
+            "orchestrator_claim_complete",
+            extra={
+                "duration_ms": round(elapsed_ms, 2),
+                "decision": decision_out.get("decision"),
+            },
+        )
+
+        claim_id = str(claim.get("claim_id") or "unknown")
+        return {
+            "claim_id": claim_id,
+            "decision": decision_out["decision"],
+            "confidence_score": decision_out["confidence_score"],
+            "agent_outputs": {
+                "fraud": fraud_out,
+                "policy": policy_out,
+                "decision": decision_out,
+            },
+        }
 
 
 def get_insurflow_orchestrator(
     llm_service: LLMService = Depends(get_llm_service),
 ) -> InsurFlowOrchestrator:
     return InsurFlowOrchestrator(llm_service=llm_service)
-

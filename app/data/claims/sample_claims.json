@@ -1,0 +1,32 @@
+[
+  {
+    "claim_id": "MIC-APPROVE-0001",
+    "claim_amount": 75.5,
+    "policy_limit": 100.0,
+    "currency": "USD",
+    "product_code": "PHONE_CRACK",
+    "incident_date": "2026-03-28",
+    "policyholder_id": "ph_8k2m",
+    "description": "Dropped phone; screen cracked. Repair quote provided."
+  },
+  {
+    "claim_id": "MIC-REJECT-0002",
+    "claim_amount": 250.0,
+    "policy_limit": 100.0,
+    "currency": "USD",
+    "product_code": "PHONE_CRACK",
+    "incident_date": "2026-03-29",
+    "policyholder_id": "ph_3w1z",
+    "description": "Repair request exceeds micro-policy cap."
+  },
+  {
+    "claim_id": "MIC-INVESTIGATE-0003",
+    "claim_amount": 90.0,
+    "policy_limit": 100.0,
+    "currency": "USD",
+    "product_code": "PHONE_CRACK",
+    "incident_date": "2026-03-30",
+    "policyholder_id": "ph_a9q2",
+    "description": "Claim submitted soon after purchase; description suggests inconsistent event timeline and missing receipt."
+  }
+]
