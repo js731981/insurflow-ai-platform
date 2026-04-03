@@ -180,6 +180,10 @@ Read-only endpoints over all paginated claim rows in the vector store. OpenAPI: 
 
 ## Author
 
-Jai — Consulting AI Data Engineer | AI Architect (in progress)
+Jayendran Subramanian — Consulting AI Data Engineer | AI Architect (in progress)
 
 **Note:** This repository is a proof-of-concept and reference implementation. Production systems handling confidential data require additional security, governance, and operations beyond this MVP.
+
+## 📄 License
+
+This project is licensed under the MIT License.
