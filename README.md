@@ -1,3 +1,8 @@
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Python](https://img.shields.io/badge/python-3.10+-green)
+![LLM](https://img.shields.io/badge/LLM-Ollama-orange)
+![Vector DB](https://img.shields.io/badge/vector--db-Chroma-purple)
+
 # InsurFlow AI (Micro-insurance)
 
 Local MVP for **small-ticket claim triage**: **FastAPI** + **Ollama** (LLM + embeddings) + **ChromaDB** (embedded, persistent). No extra infrastructure required.
