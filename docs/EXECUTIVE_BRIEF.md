@@ -1,8 +1,8 @@
-# InsurFlow AI — Executive brief (one page)
+# Insurance AI Decision Platform — Executive brief (one page)
 
 ## In one sentence
 
-InsurFlow AI is a **local proof-of-concept** that **triages micro-insurance claims** into **approve, reject, or investigate**, using **AI fraud signals**, **rule-based policy checks**, and **memory of similar past claims**—with optional **human review** and a **simple investigator workflow**.
+Insurance AI Decision Platform is a **local proof-of-concept** that **triages micro-insurance claims** into **approve, reject, or investigate**, using **AI fraud signals**, **rule-based policy checks**, and **memory of similar past claims**—with optional **human review** and a **simple investigator workflow**.
 
 ## Problem
 

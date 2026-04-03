@@ -1,4 +1,4 @@
-/* InsurFlow AI Dashboard — vanilla JS, no frameworks */
+/* Insurance AI Decision Platform — vanilla JS, no frameworks */
 
 const statusEl = document.getElementById("status");
 const rowsEl = document.getElementById("rows");

@@ -1,8 +1,8 @@
-# InsurFlow AI — Project overview (FINAL)
+# Insurance AI Decision Platform — Project overview (FINAL)
 
 ## Purpose
 
-**InsurFlow AI** is a **local MVP** for **micro-insurance claim triage**: it accepts a small-ticket claim and returns a structured outcome **`APPROVED`**, **`REJECTED`**, or **`INVESTIGATE`**, with fraud signals, policy checks, similarity to past claims, calibrated confidence, and optional human-in-the-loop (HITL) flags. It is built to run **without extra cloud infrastructure** beyond what you choose (default: **Ollama** + **ChromaDB** on disk).
+**Insurance AI Decision Platform** is a **local MVP** for **micro-insurance claim triage**: it accepts a small-ticket claim and returns a structured outcome **`APPROVED`**, **`REJECTED`**, or **`INVESTIGATE`**, with fraud signals, policy checks, similarity to past claims, calibrated confidence, and optional human-in-the-loop (HITL) flags. It is built to run **without extra cloud infrastructure** beyond what you choose (default: **Ollama** + **ChromaDB** on disk).
 
 ## What the system does
 

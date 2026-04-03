@@ -3,7 +3,7 @@
 ![LLM](https://img.shields.io/badge/LLM-Ollama-orange)
 ![Vector DB](https://img.shields.io/badge/vector--db-Chroma-purple)
 
-# InsurFlow AI (Micro-insurance)
+# Insurance AI Decision Platform (Micro-insurance)
 
 Local MVP for **small-ticket claim triage**: **FastAPI** + **Ollama** (LLM + embeddings) + **ChromaDB** (embedded, persistent). No extra infrastructure required.
 
@@ -61,6 +61,7 @@ pip install -r requirements.txt
 Create a `.env` file (example):
 
 ```env
+APP_NAME="Insurance AI Decision Platform"
 LLM_PROVIDER=ollama
 MODEL_NAME=phi3
 OLLAMA_BASE_URL=http://localhost:11434

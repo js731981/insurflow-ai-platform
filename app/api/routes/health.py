@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 
+from app.core.config import settings
 from app.core.dependencies import get_vector_store
 from app.services.metrics import metrics
 from app.services.vector_store import VectorStore
@@ -10,7 +11,7 @@ router = APIRouter()
 @router.get("/", tags=["health"])
 def root() -> dict:
     return {
-        "name": "InsurFlow AI",
+        "name": settings.app_name,
         "status": "ok",
         "docs": "/docs",
         "ui": "/ui",

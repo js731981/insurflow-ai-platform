@@ -14,7 +14,7 @@ class Settings(BaseModel):
     Keep this lightweight until you add more config sources.
     """
 
-    app_name: str = os.getenv("APP_NAME", "InsurFlow AI")
+    app_name: str = os.getenv("APP_NAME", "Insurance AI Decision Platform")
     debug: bool = os.getenv("DEBUG", "false").strip().lower() == "true"
     # Confirmed local LLM default for MVP.
     model_name: str = os.getenv("MODEL_NAME", "phi3")

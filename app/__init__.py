@@ -1,2 +1,2 @@
-"""InsurFlow AI application package."""
+"""Insurance AI Decision Platform application package."""
 

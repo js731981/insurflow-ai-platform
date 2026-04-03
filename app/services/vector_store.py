@@ -6,6 +6,7 @@ import os
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 # Must be set before chromadb import (Chroma reads env when telemetry initializes).
@@ -115,7 +116,8 @@ class VectorStore:
         persist_dir: str,
         collection_name: str = "claims",
     ) -> None:
-        self._persist_dir = persist_dir
+        # Absolute path stabilizes Chroma's singleton key (same dir as ./chroma_db vs cwd).
+        self._persist_dir = str(Path(persist_dir).expanduser().resolve())
         self._collection_name = collection_name
         # Disable Chroma PostHog telemetry (avoids noisy errors + fits local-only MVP).
         self._client = chromadb.PersistentClient(
@@ -123,6 +125,16 @@ class VectorStore:
             settings=Settings(anonymized_telemetry=False),
         )
         self._collection = self._client.get_or_create_collection(name=self._collection_name)
+
+    def close(self) -> None:
+        """Release Chroma client refcount (important when using a process-wide singleton)."""
+        if getattr(self, "_client", None) is None:
+            return
+        try:
+            self._client.close()
+        except Exception:
+            logger.exception("vector_store_close_failed")
+        self._client = None  # type: ignore[assignment]
 
     def store_claim(
         self,
