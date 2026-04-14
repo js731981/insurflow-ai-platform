@@ -7,11 +7,19 @@
 
 Local MVP for **small-ticket claim triage**: **FastAPI** + **Ollama** (LLM + embeddings) + **ChromaDB** (embedded, persistent). No extra infrastructure required.
 
+Key docs:
+
+- `PROJECTOVERVIEW.md` — concise project overview (what it is, how it works)
+- `ARCHITECTURE.md` — deeper architecture narrative and evolution path
+- `docs/EXECUTIVE_BRIEF.md` — one-page brief
+
 ## What it does
 
 - Ingests a micro-insurance claim and returns **`APPROVED`**, **`REJECTED`**, or **`INVESTIGATE`**.
 - Runs **fraud analysis** (LLM, structured JSON) and **policy checks** (rules) **in parallel**, then a **decision** agent.
 - **Retrieves similar past claims** from vector memory, applies **weighted ranking** (review signals + coherence with majority reviewed outcomes).
+- Builds a **compact RAG context** (token-capped) from similar claims and injects it into the fraud prompt.
+- Optionally applies a cheap **reranker** pass to boost similar hits that match the inbound `product_code`.
 - **Calibrates confidence** against human-reviewed similar cases (keeps raw `confidence_score` and adds `calibrated_confidence`).
 - Flags **human-in-the-loop (HITL)** when the decision is `INVESTIGATE`, or when **`calibrated_confidence`** is below **0.75** (see `HitlService` in `app/core/dependencies.py`).
 - **Persists** each processed claim (embedding + metadata) for future retrieval and learning.
@@ -110,7 +118,14 @@ CHROMA_COLLECTION=claims
 
 Optional: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `LLM_FALLBACK_PROVIDERS`, `LLM_RETRIES`, `LLM_COST_USD_PER_1K_INPUT_TOKENS`, `LLM_COST_USD_PER_1K_OUTPUT_TOKENS`, etc. See `app/core/config.py`.
 
-**LLM timeouts:** Default `LLM_TIMEOUT_S` is **180** seconds so local Ollama (e.g. Phi-3 on CPU) can finish long fraud JSON generations. If you see `LLM timeout ... attempt=1/3`, either wait for retries, raise `LLM_TIMEOUT_S`, or use a smaller/faster model.
+**LLM timeouts:** Default `LLM_TIMEOUT_S` is **120s** for Ollama (**60s** for non-Ollama) unless you override it via `LLM_TIMEOUT_S` / `LLM_TIMEOUT`. If you see `LLM timeout ... attempt=1/3`, either wait for retries, raise the timeout, reduce `LLM_RETRIES`, or use a smaller/faster model.
+
+**RAG and optional DL fraud head (recent enhancements):**
+
+- RAG can be toggled and tuned via `RAG_ENABLED`, `RAG_TOP_K`, `RAG_CONTEXT_MAX_TOKENS`, and `RAG_RERANK_ENABLED`.
+- Incoming claim payloads may optionally include `rag_filter_decision`, `rag_metadata_filter` (dict), and `product_code` to narrow/shape retrieval.
+- A lightweight **DL fraud probability head** can be enabled via `DL_FRAUD_ENABLED` and fused into the decision stage using `DL_FRAUD_FUSION_LLM_WEIGHT` / `DL_FRAUD_FUSION_DL_WEIGHT` (defaults: 0.7 / 0.3). If PyTorch isn’t installed, it falls back to a deterministic logistic scorer.
+- Fraud JSON robustness can be tuned via `STRICT_JSON_MODE` and `MAX_LLM_RETRIES` (additional LLM calls when the model returns invalid JSON).
 
 ### 3. Pull Ollama models
 

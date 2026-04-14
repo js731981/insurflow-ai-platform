@@ -10,7 +10,7 @@ Small-ticket claims need **fast, consistent first-pass decisions** without alway
 
 ## Solution
 
-A single **FastAPI** service runs an **orchestrated pipeline**: parallel **LLM fraud analysis** and **policy validation**, then a **decision step** that produces a final outcome and confidence. **Embeddings** store each claim in **ChromaDB** so the system can **retrieve similar cases** and **calibrate confidence** against human-reviewed history. **HITL** is flagged when the outcome is investigate or confidence is low. **Cases** can be assigned and moved through **NEW → ASSIGNED → IN_PROGRESS → RESOLVED**; **analytics** summarize volumes, risk patterns, and outliers.
+A single **FastAPI** service runs an **orchestrated pipeline**: parallel **LLM fraud analysis** (structured JSON, with strict parsing + retry when enabled) and **policy validation**, then a **decision step** that produces a final outcome and confidence. **Embeddings** store each claim in **ChromaDB** so the system can **retrieve similar cases** using **review-aware weighted ranking**; retrieved hits are converted into a **compact, token-capped context block** for the fraud prompt (with an optional cheap rerank boost for `product_code`). Confidence is **calibrated** against human-reviewed similar cases when available, and **HITL** is flagged when the outcome is investigate or when calibrated confidence is low. An optional lightweight **DL fraud probability head** can be enabled and fused into the decision stage. **Cases** can be assigned and moved through **NEW → ASSIGNED → IN_PROGRESS → RESOLVED**; **analytics** summarize volumes, risk patterns, and outliers.
 
 ## Why it matters (MVP value)
 
@@ -28,4 +28,4 @@ A single **FastAPI** service runs an **orchestrated pipeline**: parallel **LLM f
 
 This is a **reference MVP**, not production-ready for regulated or highly sensitive data. A real deployment needs **security, privacy, model governance, monitoring, and operational controls** beyond this repository.
 
-*For architecture detail and API tables, see [`PROJECT_OVERVIEW.md`](./PROJECT_OVERVIEW.md) and the root [`README.md`](../README.md).*
+*For architecture detail and API tables, see the root [`PROJECTOVERVIEW.md`](../PROJECTOVERVIEW.md) and [`README.md`](../README.md).*

@@ -28,12 +28,16 @@ Decision Pipeline (Multi-Agent System)
 ├── Embedding Service (Ollama)
 │ ↓
 │ Vector Store (Chroma)
-│ → Retrieve similar claims (RAG)
+│ → Retrieve similar claims (weighted + optional filters)
+│ → Optional lightweight rerank (product_code boost)
+│ → Compact context builder (token-capped RAG context)
 │
 ├── Fraud Agent (LLM-based reasoning)
+│    → Strict JSON mode with parse-repair + optional retry when output is invalid
 ├── Policy Agent (Rule-based validation)
 │
 └── Decision Agent (Fusion Layer)
+     → Optional DL fraud probability fusion (small local head; torch if available)
 ↓
 HITL (Human-in-the-Loop)
 ↓
@@ -50,14 +54,16 @@ Memory Layer (Atomic Write)
 ## End-to-End Flow
 
 Claim received via API
-Embedding generated from claim description
-Similar claims retrieved from vector store (RAG)
-Fraud Agent evaluates risk using LLM + context
+Embedding generated from claim description (or JSON snapshot if description is empty)
+Similar claims retrieved from vector store (weighted ranking; optional metadata/decision/product filters)
+Compact similar-claims context built and injected into the fraud prompt (token-capped)
+Fraud Agent evaluates risk using LLM + context (strict structured JSON output)
 Policy Agent validates rules and constraints
-Decision Agent combines outputs → final decision
+Optional DL fraud head computes a fraud probability (small local model; deterministic fallback without torch)
+Decision Agent fuses fraud + policy (+ optional DL score + majority reviewed outcome among similar hits) → final decision
 HITL triggered if:
 decision == INVESTIGATE
-confidence < threshold
+calibrated_confidence < threshold
 Claim stored (embedding + metadata) in vector DB
 Future decisions leverage stored knowledge
 
@@ -84,11 +90,12 @@ Future decisions leverage stored knowledge
 
 #### 🔹 Fraud Agent (LLM)
 - Performs contextual reasoning
-- Uses retrieved similar claims (RAG)
+- Uses retrieved similar claims (RAG) via a compact, token-capped context
 - Outputs:
   - fraud_score
   - explanation
   - entities
+  - strict JSON parse health (internal) with retry when enabled
 
 #### 🔹 Policy Agent (Rules)
 - Validates business rules (e.g., policy limits)
@@ -96,6 +103,8 @@ Future decisions leverage stored knowledge
 
 #### 🔹 Decision Agent (Fusion Layer)
 - Combines Fraud + Policy outputs
+- Optionally fuses a lightweight DL fraud probability head (if enabled)
+- Calibrates confidence using human-reviewed similar-claim majority when available
 - Produces:
   - final decision
   - confidence score
@@ -213,6 +222,7 @@ MVP → Production:
   - latency
   - confidence
   - HITL rate
+  - embedding/retrieval usage (logged as pipeline perf fields)
 - Error tracking and tracing
 
 ---

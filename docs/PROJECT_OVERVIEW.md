@@ -1,4 +1,4 @@
-# Insurance AI Decision Platform — Project overview (FINAL)
+# Insurance AI Decision Platform — Project overview
 
 ## Purpose
 
@@ -7,7 +7,9 @@
 ## What the system does
 
 1. **Claim processing pipeline** — An orchestrator runs **fraud analysis** (LLM → structured JSON) and **policy validation** (rules, e.g. amount vs limit) **in parallel**, then a **decision agent** merges them into a final triage decision and confidence.
-2. **Vector memory** — Embeddings (Ollama) feed a **persistent ChromaDB** collection so the system can **retrieve similar past claims** and rank them with review-aware weighting.
+2. **Vector memory** — Embeddings (Ollama) feed a **persistent ChromaDB** collection so the system can **retrieve similar past claims** using **review-aware weighted ranking** (reviewed items get a boost; hits coherent with the majority reviewed outcome get an additional boost).
+3. **Compact RAG context** — Retrieved hits are converted into a **short, token-capped context block** (no raw metadata dump) and injected into the fraud prompt.
+4. **Optional rerank** — A cheap reranker can boost retrieved hits that match the inbound `product_code` (useful when vector similarity alone is ambiguous).
 3. **Calibration** — Raw **`confidence_score`** is kept; **`calibrated_confidence`** adjusts using human-reviewed similar cases when available.
 4. **HITL** — Review is recommended when the decision is **`INVESTIGATE`** or when **`calibrated_confidence`** is below **0.75** (see `HitlService` in `app/core/dependencies.py`).
 5. **Persistence** — Each successfully embedded claim is **upserted** into the vector store for future retrieval and analytics.
@@ -20,13 +22,17 @@
 ```
 FastAPI (v0.1.0)
 └── InsurFlowOrchestrator
-    ├── EmbeddingService (Ollama) → VectorStore (Chroma) — similar claims
+    ├── EmbeddingService (Ollama) → VectorStore (Chroma) — weighted similar-claim retrieval
+    │     └── ContextBuilder (token-capped) + optional LightweightReranker (product_code boost)
     ├── FraudAgent (LLM)     ─┐
     ├── PolicyAgent (rules)  ─┼─→ DecisionAgent → HITL
+    │                          └→ Optional DL fraud probability fusion (enabled via env)
     └── store_claim (upsert when embedding succeeds)
 ```
 
 **LLM execution** goes through **`LLMService` → `LLMRouter`** (timeouts, retries, optional fallbacks). Providers: **Ollama** (default), **OpenAI** and **OpenRouter** if API keys are set. **`POST /inference`** supports optional task hints (`cheap` → Ollama, `complex` → OpenAI when configured). Optional **USD cost** heuristics use `LLM_COST_USD_PER_1K_*` environment variables.
+
+**Timeout defaults:** unless overridden via `LLM_TIMEOUT_S` / `LLM_TIMEOUT`, the default wall-clock timeout is **120s** for Ollama and **60s** for non-Ollama providers.
 
 ## Technology stack
 
@@ -55,14 +61,14 @@ Primary dependencies (see `requirements.txt`): `fastapi`, `uvicorn[standard]`, `
 
 - **LLM:** timeouts and retries; failures logged with **`claim_id`** when present.
 - **Embedding/retrieval failure:** API continues; **vector write skipped** for that request.
-- **Fraud LLM failure or bad JSON:** safe fallback toward **`INVESTIGATE`** / moderate confidence unless policy rules force **`REJECTED`**.
+- **Fraud LLM failure or bad JSON:** strict JSON parsing (with optional retry when enabled) plus a safe fallback toward **`INVESTIGATE`** / moderate confidence unless policy rules force **`REJECTED`**.
 
 ## Repository layout (main)
 
 - `app/main.py` — App factory, routers, `/ui` static mount, startup log.
 - `app/agents/` — Orchestrator, fraud, policy, decision, base agent.
 - `app/api/routes/` — health, inference, claims, cases, analytics.
-- `app/services/` — LLM, embeddings, vector store, HITL, metrics, analytics, samples.
+- `app/services/` — LLM/router/providers, embeddings, vector store, HITL, metrics, analytics, retrieval/rerank/context building, samples.
 - `app/core/` — `Settings`, dependency wiring.
 - `app/web/` — Dashboard static assets.
 - `chroma_db/` (default) — Chroma persistence (`CHROMA_PERSIST_DIR`).
@@ -71,7 +77,7 @@ Primary dependencies (see `requirements.txt`): `fastapi`, `uvicorn[standard]`, `
 
 This repository is a **proof-of-concept / reference implementation** for automated micro-claim triage with local AI and a simple case workflow. **Production** use with confidential data would need stronger security, governance, and operations than this MVP.
 
-For setup, environment variables, and detailed API tables, see the root **`README.md`**.
+For a concise top-level overview, see the root **`PROJECTOVERVIEW.md`**. For setup, environment variables, and detailed API tables, see the root **`README.md`**.
 
 ## Author
 
