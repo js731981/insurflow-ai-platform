@@ -1,0 +1,7 @@
+gradio
+httpx
+torch
+torchvision
+pillow
+numpy
+
