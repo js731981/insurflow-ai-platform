@@ -408,6 +408,10 @@ def _validate_claim_metadata(meta: dict[str, Any], *, claim_id: str) -> None:
         "assigned_to",
         "assigned_at",
         "updated_at",
+        "image_damage_type",
+        "image_severity",
+        "has_image",
+        "image_preview_base64",
     )
     meta.setdefault("claim_id", claim_id)
     meta.setdefault("timestamp", _utc_now_iso())
@@ -416,6 +420,10 @@ def _validate_claim_metadata(meta: dict[str, Any], *, claim_id: str) -> None:
     meta.setdefault("case_status", "NEW")
     meta.setdefault("assigned_to", "")
     meta.setdefault("assigned_at", "")
+    meta.setdefault("image_damage_type", "")
+    meta.setdefault("image_severity", "")
+    meta.setdefault("has_image", "")
+    meta.setdefault("image_preview_base64", "")
     if not str(meta.get("updated_at") or "").strip():
         meta["updated_at"] = str(meta.get("timestamp") or _utc_now_iso())
 

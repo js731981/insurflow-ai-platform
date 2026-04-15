@@ -41,12 +41,22 @@ app.include_router(analytics_router)
 @app.on_event("startup")
 async def _startup() -> None:
     logger.info("Starting Insurance AI Decision Platform (micro-insurance)")
+    logger.info(
+        "LLM config \u2192 model=%s, timeout=%ss",
+        settings.llm_model,
+        int(settings.llm_timeout_s) if float(settings.llm_timeout_s).is_integer() else settings.llm_timeout_s,
+    )
     # Eager init: fail fast on misconfig and avoid first-request races on shared clients.
     from app.core.dependencies import get_embedding_service, get_llm_service, get_vector_store
 
     get_vector_store()
-    get_llm_service()
+    llm = get_llm_service()
     get_embedding_service()
+    try:
+        await llm.warmup()
+    except Exception:
+        # Warmup is best-effort; do not block startup.
+        pass
 
 
 @app.on_event("shutdown")

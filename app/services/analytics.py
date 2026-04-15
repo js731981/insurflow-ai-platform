@@ -433,6 +433,8 @@ def build_analytics_summary(vector_store: VectorStore) -> dict[str, Any]:
 
     decision_dist = {"APPROVED": 0, "REJECTED": 0, "INVESTIGATE": 0}
     review_dist = {"APPROVED": 0, "REJECTED": 0, "PENDING": 0}
+    llm_used_count = 0
+    llm_skipped_count = 0
     product_ctr: Counter[str] = Counter()
     band_ctr: Counter[str] = Counter()
     scores: list[float] = []
@@ -450,6 +452,23 @@ def build_analytics_summary(vector_store: VectorStore) -> dict[str, Any]:
         fs = _safe_fraud_score(meta)
         if fs is not None:
             scores.append(fs)
+
+        ds = str(meta.get("decision_source") or "").strip().lower()
+        if ds == "rule":
+            llm_skipped_count += 1
+        elif ds == "llm":
+            llm_used_count += 1
+        elif ds == "fallback":
+            # LLM was attempted (or analysis path triggered) but not reliable; still counts as "used"
+            # for observability since it represents LLM pipeline invocation.
+            llm_used_count += 1
+        else:
+            # Back-compat: treat missing as "unknown" and infer from llm_used when present.
+            raw = str(meta.get("llm_used") or "").strip().lower()
+            if raw in ("1", "true", "yes"):
+                llm_used_count += 1
+            elif raw in ("0", "false", "no"):
+                llm_skipped_count += 1
 
         entities = _parse_entities_json(meta)
         pv = _scalar_entity_value(entities, "product") or _scalar_entity_value(entities, "product_code")
@@ -477,8 +496,13 @@ def build_analytics_summary(vector_store: VectorStore) -> dict[str, Any]:
         for d in sorted(day_ctr.keys())
     ]
 
+    llm_usage_pct = round((llm_used_count / total * 100.0), 2) if total > 0 else 0.0
+
     return {
         "total_claims": total,
+        "llm_used_count": int(llm_used_count),
+        "llm_skipped_count": int(llm_skipped_count),
+        "llm_usage_percentage": llm_usage_pct,
         "decision_distribution": decision_dist,
         "review_distribution": review_dist,
         "fraud_score_stats": fraud_stats,

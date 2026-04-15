@@ -16,6 +16,8 @@ class LLMProviderError(Exception):
         response_body: Optional[str] = None,
     ) -> None:
         super().__init__(message)
+        # Convenience attribute for logging/telemetry (Exception doesn't define `.message`).
+        self.message = message
         self.provider = provider
         self.status_code = status_code
         self.response_body = response_body

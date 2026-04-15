@@ -23,7 +23,7 @@ def get_llm_service() -> LLMService:
         return _llm_singleton
     with _llm_lock:
         if _llm_singleton is None:
-            _llm_singleton = LLMService(model_name=settings.model_name)
+            _llm_singleton = LLMService(model_name=settings.llm_model)
     return _llm_singleton
 
 
@@ -86,4 +86,5 @@ async def shutdown_llm_embedding_clients() -> None:
 
 
 def get_hitl_service() -> HitlService:
-    return HitlService(confidence_threshold=0.75)
+    # Business rule: when APPROVED, only auto-approve if confidence >= 0.7.
+    return HitlService(approve_confidence_threshold=0.7)

@@ -9,7 +9,7 @@ Local MVP for **small-ticket claim triage**: **FastAPI** + **Ollama** (LLM + emb
 
 Key docs:
 
-- `PROJECTOVERVIEW.md` — concise project overview (what it is, how it works)
+- `docs/PROJECT_OVERVIEW.md` — concise project overview (what it is, how it works)
 - `ARCHITECTURE.md` — deeper architecture narrative and evolution path
 - `docs/EXECUTIVE_BRIEF.md` — one-page brief
 
@@ -26,6 +26,9 @@ Key docs:
 - Supports an **investigator case workflow** on top of stored claims: list/filter cases, **assign** from `NEW` → `ASSIGNED`, and advance status (`ASSIGNED` → `IN_PROGRESS` → `RESOLVED`) via dedicated endpoints.
 - Serves **analytics** over Chroma-backed claims: summary aggregates, anomaly-style alerts, and a fraud-score leaderboard.
 - Exposes **structured logs**, in-process **metrics**, and a **minimal web UI** at `/ui`.
+- Supports **multimodal claim triage**: optional **image analysis** signals can be provided via JSON (`image_base64`) or multipart upload (`file`/`image`).
+- Optional **CNN damage classifier** (MobileNetV2 + fine-tuned weights) can be enabled for 3-class screen damage: `no_damage`, `minor_crack`, `major_crack`. If the CNN stack/weights are unavailable, the pipeline safely falls back to heuristic image signals.
+- Provides **visual explainability** for the CNN path via a **Grad-CAM overlay** endpoint (PNG).
 
 ## Architecture
 
@@ -91,6 +94,9 @@ Memory Layer (Atomic Write)
 ## Tech stack
 
 - Python 3.10+, **FastAPI**, **Pydantic v2**, **httpx**, **python-dotenv**
+- **Pillow** + **numpy** for image decoding and lightweight vision heuristics
+- Optional **torch** + **torchvision** for CNN classification + Grad-CAM
+- **python-multipart** for multipart/form-data claim uploads (UI-friendly)
 - **Ollama** — chat completions (`/api/generate`) and embeddings (`/api/embeddings`)
 - **ChromaDB** — persistent local vector store
 
@@ -109,7 +115,7 @@ Create a `.env` file (example):
 ```env
 APP_NAME="Insurance AI Decision Platform"
 LLM_PROVIDER=ollama
-MODEL_NAME=phi3
+LLM_MODEL=phi3:mini
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 CHROMA_PERSIST_DIR=./chroma_db
@@ -118,7 +124,11 @@ CHROMA_COLLECTION=claims
 
 Optional: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `LLM_FALLBACK_PROVIDERS`, `LLM_RETRIES`, `LLM_COST_USD_PER_1K_INPUT_TOKENS`, `LLM_COST_USD_PER_1K_OUTPUT_TOKENS`, etc. See `app/core/config.py`.
 
-**LLM timeouts:** Default `LLM_TIMEOUT_S` is **120s** for Ollama (**60s** for non-Ollama) unless you override it via `LLM_TIMEOUT_S` / `LLM_TIMEOUT`. If you see `LLM timeout ... attempt=1/3`, either wait for retries, raise the timeout, reduce `LLM_RETRIES`, or use a smaller/faster model.
+**Timeouts (interactive defaults):**
+
+- **LLM per-attempt cap**: `LLM_TIMEOUT` / `LLM_TIMEOUT_S` (default **60s**, with a safety floor of 60s even if set lower).
+- **Fraud agent hard cap**: `FRAUD_AGENT_TIMEOUT` / `FRAUD_AGENT_TIMEOUT_S` (default **120s**).
+- **Whole claim pipeline cap**: `CLAIM_TIMEOUT` / `CLAIM_TIMEOUT_S` (default **35s**). If the LLM is slow/unavailable, the system falls back to a safe `INVESTIGATE` result.
 
 **RAG and optional DL fraud head (recent enhancements):**
 
@@ -126,6 +136,14 @@ Optional: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `LLM_FALLBACK_PROVIDERS`, `LLM
 - Incoming claim payloads may optionally include `rag_filter_decision`, `rag_metadata_filter` (dict), and `product_code` to narrow/shape retrieval.
 - A lightweight **DL fraud probability head** can be enabled via `DL_FRAUD_ENABLED` and fused into the decision stage using `DL_FRAUD_FUSION_LLM_WEIGHT` / `DL_FRAUD_FUSION_DL_WEIGHT` (defaults: 0.7 / 0.3). If PyTorch isn’t installed, it falls back to a deterministic logistic scorer.
 - Fraud JSON robustness can be tuned via `STRICT_JSON_MODE` and `MAX_LLM_RETRIES` (additional LLM calls when the model returns invalid JSON).
+
+**Image analysis (new):**
+
+- Enable/disable: `ENABLE_IMAGE_ANALYSIS` (default `true`)
+- Backend: `IMAGE_MODEL_TYPE=heuristic|cnn` (default `heuristic`)
+- Fusion: `IMAGE_FUSION_WEIGHT` (default `0.2`) controls how much image severity influences final triage.
+- CNN confidence gating: `CNN_CONF_THRESHOLD` (default `0.7`)
+- CNN weights path: `IMAGE_CNN_MODEL_PATH` (optional; if missing/invalid the system falls back safely)
 
 ### 3. Pull Ollama models
 
@@ -155,8 +173,10 @@ uvicorn app.main:app --reload
 | `GET` | `/` | Service info and links |
 | `GET` | `/health` | Liveness |
 | `GET` | `/metrics` | Snapshot: `total_claims_processed`, `hitl_triggered_count`, `reviewed_claims_count` (in-memory, reset when the process restarts), `metrics_scope`, and `vector_store_claim_documents` from Chroma. |
-| `POST` | `/claims` | Process a claim (same pipeline as `POST /claim`) |
+| `POST` | `/claims` | Process a claim (JSON or multipart/form-data) |
 | `GET` | `/claims` | List stored claims from Chroma (MVP: up to **200** rows, fixed offset **0**) |
+| `GET` | `/claims/{claim_id}/image-preview` | Return stored base64 preview for the claim image (if present) |
+| `GET` | `/claims/{claim_id}/gradcam` | Return a Grad-CAM heatmap overlay PNG for the stored claim image (503 if CNN/weights unavailable) |
 | `GET` | `/cases` | List cases derived from stored claims (up to **500**); optional query: `case_status`, `assigned_to`, `unassigned_only` |
 | `POST` | `/cases/{claim_id}/assign` | Assign investigator when `case_status` is `NEW` → sets `ASSIGNED`, `assigned_to`, timestamps |
 | `POST` | `/cases/{claim_id}/status` | Update workflow: `IN_PROGRESS` (from `ASSIGNED`) or `RESOLVED` (from `IN_PROGRESS`); use assign endpoint for `NEW` → `ASSIGNED` |
@@ -173,6 +193,13 @@ uvicorn app.main:app --reload
 `POST /claims` or `POST /claim` — body: `ClaimRequest` (`claim_id`, `claim_amount`, `policy_limit`, plus optional fields such as `description`, `currency`, `product_code`, `incident_date`, `policyholder_id`). **Unknown top-level JSON keys are rejected** (`extra="forbid"`).
 
 If `description` is empty, the orchestrator embeds a **JSON snapshot of the claim** for retrieval so similar-case context still has text to work with.
+
+**Image input options:**
+
+- **JSON**: include `image_base64` (raw base64 string or a `data:image/...;base64,...` data URL)
+- **Multipart**: send `multipart/form-data` with either:
+  - `claim` = JSON string + optional file field `file` or `image`, or
+  - flat fields `claim_id`, `claim_amount`, `policy_limit`, optional `description`, plus optional file field `file` or `image`
 
 Response highlights:
 

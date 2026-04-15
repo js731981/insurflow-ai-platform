@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
 
 from app.core.config import settings
-from app.core.dependencies import get_vector_store
+from app.core.dependencies import get_llm_service, get_vector_store
+from app.services.llm_service import LLMService
 from app.services.metrics import metrics
 from app.services.vector_store import VectorStore
 
@@ -33,4 +34,19 @@ def get_metrics(vector_store: VectorStore = Depends(get_vector_store)) -> dict:
     except Exception:
         out["vector_store_claim_documents"] = None
     return out
+
+
+@router.get("/health/llm", tags=["health"])
+async def llm_health(llm: LLMService = Depends(get_llm_service)) -> dict:
+    # Ensure warmup/model validation has had a chance to run.
+    try:
+        await llm.warmup()
+    except Exception:
+        pass
+    return {
+        "provider": settings.llm_provider,
+        "model_configured": settings.llm_model,
+        "model_in_use": llm.default_model,
+        "model_available": llm.model_available,
+    }
 

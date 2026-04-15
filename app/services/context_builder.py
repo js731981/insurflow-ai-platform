@@ -74,13 +74,16 @@ class ContextBuilder:
         if not hits:
             return ""
 
-        lines: list[str] = ["Similar claims:", ""]
+        # Keep this ultra-compact: 1 line per claim, no extra JSON/metadata blocks.
+        lines: list[str] = ["Similar claims:"]
         for idx, h in enumerate(hits, start=1):
             blurb = _topic_blurb(h.document or "")
-            dec = _decision_word(h.metadata)
-            risk = _fraud_risk_phrase(h.metadata)
+            dec = _decision_word(h.metadata).replace("approved", "approved").replace("rejected", "rejected")
+            # Example target:
+            # 1. Minor crack → approved
             tail = _review_suffix(h.metadata)
-            lines.append(f"{idx}. {blurb}, {dec}, {risk}{tail}")
+            arrow = "→"
+            lines.append(f"{idx}. {blurb} {arrow} {dec}{tail}")
 
         text = "\n".join(lines).strip()
 

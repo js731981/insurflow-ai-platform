@@ -4,777 +4,359 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Insurance AI Decision Platform</title>
-    <style>
-      :root {
-        color-scheme: light;
-        --bg: #f8fafc;
-        --surface: #ffffff;
-        --text: #0f172a;
-        --muted: #64748b;
-        --border: #e2e8f0;
-        --accent: #2563eb;
-        --success: #16a34a;
-        --warn: #ea580c;
-        --danger: #dc2626;
-        --shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background: var(--bg);
-        color: var(--text);
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-        font-size: 14px;
-        line-height: 1.45;
-      }
-      .container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 24px 20px 48px;
-      }
-      header {
-        background: var(--surface);
-        border-bottom: 1px solid var(--border);
-        box-shadow: var(--shadow);
-        margin-bottom: 24px;
-      }
-      header .inner {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 20px 20px;
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        gap: 16px;
-        flex-wrap: wrap;
-      }
-      header h1 {
-        margin: 0;
-        font-size: 1.35rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-      header .sub {
-        margin: 6px 0 0;
-        font-size: 0.8rem;
-        color: var(--muted);
-      }
-      header .sub a {
-        color: var(--accent);
-        text-decoration: none;
-      }
-      header .sub a:hover {
-        text-decoration: underline;
-      }
-      .toolbar {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-      button {
-        padding: 8px 14px;
-        border: 1px solid var(--border);
-        background: var(--surface);
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 0.875rem;
-        font-weight: 500;
-      }
-      button.primary {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: #fff;
-      }
-      button:disabled {
-        opacity: 0.55;
-        cursor: not-allowed;
-      }
-      .banner {
-        display: none;
-        padding: 10px 14px;
-        border-radius: 8px;
-        margin-bottom: 16px;
-        font-size: 0.875rem;
-        border: 1px solid var(--border);
-        background: #ecfdf5;
-        color: #14532d;
-      }
-      .banner.show {
-        display: block;
-      }
-      .banner.error {
-        background: #fef2f2;
-        color: #991b1b;
-      }
-      .loading-row {
-        display: none;
-        align-items: center;
-        gap: 10px;
-        padding: 12px 0;
-        color: var(--muted);
-        font-size: 0.875rem;
-      }
-      .loading-row.show {
-        display: flex;
-      }
-      .spinner {
-        width: 18px;
-        height: 18px;
-        border: 2px solid var(--border);
-        border-top-color: var(--accent);
-        border-radius: 50%;
-        animation: spin 0.7s linear infinite;
-      }
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-      .muted {
-        color: var(--muted);
-        font-size: 0.8rem;
-      }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        background: var(--surface);
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: var(--shadow);
-        border: 1px solid var(--border);
-      }
-      th,
-      td {
-        border-bottom: 1px solid var(--border);
-        padding: 12px 14px;
-        vertical-align: top;
-        text-align: left;
-      }
-      th {
-        background: #f1f5f9;
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--muted);
-        font-weight: 600;
-      }
-      tr:last-child td {
-        border-bottom: none;
-      }
-      .claim-id {
-        font-weight: 600;
-        color: var(--text);
-      }
-      .preview {
-        margin-top: 6px;
-        max-width: 360px;
-        color: var(--muted);
-        font-size: 0.8rem;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-      .score-pill {
-        display: inline-block;
-        padding: 2px 10px;
-        border-radius: 999px;
-        font-size: 0.8rem;
-        font-weight: 600;
-      }
-      .score-low {
-        background: #dcfce7;
-        color: var(--success);
-      }
-      .score-mid {
-        background: #ffedd5;
-        color: var(--warn);
-      }
-      .score-high {
-        background: #fee2e2;
-        color: var(--danger);
-      }
-      .decision {
-        font-weight: 600;
-        font-size: 0.85rem;
-      }
-      .decision.approved {
-        color: var(--success);
-      }
-      .decision.rejected {
-        color: var(--danger);
-      }
-      .decision.investigate {
-        color: var(--warn);
-      }
-      .pill {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        border: 1px solid var(--border);
-      }
-      .pill.hitl {
-        background: #fff7ed;
-        border-color: #fdba74;
-      }
-      .pill.ok {
-        background: #ecfdf5;
-        border-color: #6ee7b7;
-      }
-      .review-status {
-        font-size: 0.8rem;
-      }
-      .review-status.done {
-        color: var(--success);
-      }
-      .cell-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .explanation {
-        margin-top: 10px;
-        padding: 10px 12px;
-        background: #f8fafc;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        font-size: 0.8rem;
-        white-space: pre-wrap;
-        max-width: 520px;
-      }
-      details.explain-details {
-        margin-top: 8px;
-      }
-      details.explain-details summary {
-        cursor: pointer;
-        color: var(--accent);
-        font-size: 0.8rem;
-        user-select: none;
-      }
-      details.explain-details summary:hover {
-        text-decoration: underline;
-      }
-      .entities {
-        margin-top: 6px;
-        font-size: 0.75rem;
-        color: var(--muted);
-        font-family: ui-monospace, monospace;
-      }
-      .fraud-intel {
-        margin-bottom: 28px;
-        padding: 20px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        box-shadow: var(--shadow);
-      }
-      .fraud-intel h2 {
-        margin: 0 0 6px;
-        font-size: 1.1rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-      .fraud-intel .intel-sub {
-        margin: 0 0 16px;
-        font-size: 0.8rem;
-        color: var(--muted);
-      }
-      .intel-insight-list {
-        margin: 0 0 16px;
-        padding: 0;
-        list-style: none;
-      }
-      .intel-insight-list li {
-        margin-bottom: 8px;
-        padding: 8px 12px;
-        border-left: 3px solid var(--warn);
-        background: #fff7ed;
-        border-radius: 0 8px 8px 0;
-        font-size: 0.875rem;
-        color: #9a3412;
-      }
-      .intel-cards-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 20px;
-      }
-      .intel-card {
-        flex: 1 1 120px;
-        min-width: 100px;
-        padding: 14px 16px;
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        background: #fafafa;
-      }
-      .intel-card .label {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--muted);
-        font-weight: 600;
-        margin-bottom: 6px;
-      }
-      .intel-card .value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-      .intel-card.approved .value {
-        color: var(--success);
-      }
-      .intel-card.rejected .value {
-        color: var(--danger);
-      }
-      .intel-card.investigate .value {
-        color: var(--warn);
-      }
-      .intel-panels {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 16px;
-        margin-bottom: 16px;
-      }
-      .intel-panel {
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 14px 16px;
-        background: #fafafa;
-      }
-      .intel-panel h3 {
-        margin: 0 0 12px;
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: var(--text);
-      }
-      .intel-stat-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        font-size: 0.875rem;
-        margin-bottom: 8px;
-      }
-      .intel-stat-row:last-child {
-        margin-bottom: 0;
-      }
-      .intel-bar-row {
-        margin-bottom: 10px;
-      }
-      .intel-bar-row:last-child {
-        margin-bottom: 0;
-      }
-      .intel-bar-meta {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.8rem;
-        margin-bottom: 4px;
-      }
-      .intel-bar-track {
-        height: 8px;
-        background: #e2e8f0;
-        border-radius: 4px;
-        overflow: hidden;
-      }
-      .intel-bar-fill {
-        height: 100%;
-        border-radius: 4px;
-        background: var(--accent);
-        min-width: 2px;
-        transition: width 0.2s ease;
-      }
-      .intel-bar-fill.band {
-        background: #7c3aed;
-      }
-      .intel-bar-fill.intel-bar-timeline {
-        background: #0d9488;
-      }
-      .intel-muted {
-        font-size: 0.8rem;
-        color: var(--muted);
-      }
-      .intel-error {
-        color: var(--danger);
-        font-size: 0.875rem;
-      }
-      .fraud-alerts {
-        margin-bottom: 28px;
-        padding: 20px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        box-shadow: var(--shadow);
-      }
-      .fraud-alerts h2 {
-        margin: 0 0 6px;
-        font-size: 1.1rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-      .fraud-alerts .alerts-sub {
-        margin: 0 0 14px;
-        font-size: 0.8rem;
-        color: var(--muted);
-      }
-      .fraud-alerts-list {
-        margin: 0;
-        padding: 0;
-        list-style: none;
-      }
-      .fraud-alert-item {
-        margin-bottom: 10px;
-        padding: 12px 14px;
-        border-radius: 0 10px 10px 0;
-        border: 1px solid var(--border);
-        border-left-width: 4px;
-        font-size: 0.875rem;
-      }
-      .fraud-alert-item:last-child {
-        margin-bottom: 0;
-      }
-      .fraud-alert-item.severity-high {
-        border-left-color: #dc2626;
-        background: #fef2f2;
-      }
-      .fraud-alert-item.severity-medium {
-        border-left-color: #ea580c;
-        background: #fff7ed;
-      }
-      .fraud-alert-item.severity-low {
-        border-left-color: #ca8a04;
-        background: #fefce8;
-      }
-      .fraud-alert-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px 14px;
-        margin-top: 8px;
-        font-size: 0.75rem;
-        color: var(--muted);
-      }
-      .fraud-alert-meta strong {
-        color: var(--text);
-        font-weight: 600;
-      }
-      .fraud-alerts-empty {
-        margin: 0;
-        font-size: 0.875rem;
-        color: var(--muted);
-      }
-      .fraud-alerts-error {
-        color: var(--danger);
-        font-size: 0.875rem;
-        margin: 0;
-      }
-      .leaderboard {
-        margin-bottom: 28px;
-        padding: 20px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        box-shadow: var(--shadow);
-      }
-      .leaderboard h2 {
-        margin: 0 0 6px;
-        font-size: 1.1rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-      .leaderboard .lb-sub {
-        margin: 0 0 14px;
-        font-size: 0.8rem;
-        color: var(--muted);
-      }
-      .leaderboard-toolbar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px 18px;
-        align-items: center;
-        margin-bottom: 14px;
-        font-size: 0.875rem;
-      }
-      .leaderboard-toolbar label {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-        user-select: none;
-      }
-      .leaderboard-toolbar input[type="number"] {
-        width: 4.5rem;
-        padding: 6px 8px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        font-size: 0.875rem;
-      }
-      .leaderboard table {
-        margin-top: 0;
-      }
-      .leaderboard tr.lb-top3 td {
-        background: linear-gradient(90deg, #fff7ed 0%, transparent 100%);
-      }
-      .risk-level {
-        font-weight: 700;
-        font-size: 0.8rem;
-      }
-      .risk-level.high {
-        color: var(--danger);
-      }
-      .risk-level.medium {
-        color: var(--warn);
-      }
-      .risk-level.low {
-        color: var(--success);
-      }
-      .risk-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        margin-left: 6px;
-        font-size: 0.7rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--danger);
-      }
-      .leaderboard-error {
-        color: var(--danger);
-        font-size: 0.875rem;
-        margin: 0 0 12px;
-      }
-      .lb-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        align-items: center;
-      }
-      .lb-actions a {
-        font-size: 0.8rem;
-        color: var(--accent);
-        text-decoration: none;
-      }
-      .lb-actions a:hover {
-        text-decoration: underline;
-      }
-      .case-mgmt {
-        margin-bottom: 28px;
-        padding: 20px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        box-shadow: var(--shadow);
-      }
-      .case-mgmt h2 {
-        margin: 0 0 6px;
-        font-size: 1.1rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-      .case-mgmt .case-mgmt-sub {
-        margin: 0 0 14px;
-        font-size: 0.8rem;
-        color: var(--muted);
-      }
-      .case-mgmt-toolbar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px 18px;
-        align-items: center;
-        margin-bottom: 14px;
-        font-size: 0.875rem;
-      }
-      .case-mgmt-toolbar label {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-        user-select: none;
-      }
-      .case-mgmt-toolbar input[type="text"] {
-        min-width: 160px;
-        padding: 6px 10px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        font-size: 0.875rem;
-      }
-      .case-mgmt-error {
-        color: var(--danger);
-        font-size: 0.875rem;
-        margin: 0 0 12px;
-      }
-      .case-badge {
-        display: inline-block;
-        padding: 2px 10px;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-      }
-      .case-badge.new {
-        background: #f1f5f9;
-        color: var(--muted);
-        border: 1px solid var(--border);
-      }
-      .case-badge.assigned {
-        background: #dbeafe;
-        color: #1d4ed8;
-        border: 1px solid #93c5fd;
-      }
-      .case-badge.in_progress {
-        background: #ffedd5;
-        color: #c2410c;
-        border: 1px solid #fdba74;
-      }
-      .case-badge.resolved {
-        background: #dcfce7;
-        color: #15803d;
-        border: 1px solid #86efac;
-      }
-      .case-mgmt-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        align-items: center;
-      }
-      .case-mgmt-actions input.case-assign-input {
-        width: 140px;
-        padding: 6px 8px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        font-size: 0.8rem;
-      }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header>
-      <div class="inner">
-        <div>
-          <h1>Insurance AI Decision Platform</h1>
-          <p class="sub">Local MVP · <a href="/docs">API docs</a> · <code>/ui</code></p>
+    <div id="globalLoading" class="global-loading" aria-hidden="true" hidden>
+      <div class="global-loading__inner">
+        <div class="spinner" aria-hidden="true"></div>
+        <span>Syncing data…</span>
+      </div>
+    </div>
+
+    <header class="app-header">
+      <div class="app-header__inner">
+        <div class="app-header__brand">
+          <h1 class="app-header__title">Insurance AI Decision Platform</h1>
+          <p class="app-header__subtitle">AI-powered Claim Intelligence</p>
+          <p id="status" class="app-header__meta muted" aria-live="polite"></p>
         </div>
-        <div class="toolbar">
-          <button type="button" class="primary" id="refreshBtn">Refresh</button>
+        <div class="app-header__actions">
+          <button type="button" class="btn btn--secondary" id="refreshBtn">Refresh</button>
+          <div id="sysHealth" class="health-pill" title="API connectivity">
+            <span class="health-pill__dot" aria-hidden="true"></span>
+            <span id="sysHealthText">System Healthy</span>
+          </div>
         </div>
       </div>
     </header>
 
-    <div class="container">
-      <div id="toast" class="banner" role="status"></div>
-      <div id="loading" class="loading-row" aria-live="polite">
-        <div class="spinner" aria-hidden="true"></div>
-        <span>Loading claims…</span>
+    <div id="toastHost" class="toast-host" aria-live="polite" aria-relevant="additions"></div>
+
+    <main class="app-main">
+      <nav class="tab-bar" aria-label="Primary">
+        <button type="button" class="tab-bar__btn is-active" data-tab="dashboard">Dashboard</button>
+        <button type="button" class="tab-bar__btn" data-tab="operations">Analytics &amp; Operations</button>
+        <a class="tab-bar__link" href="/docs" target="_blank" rel="noopener">API docs</a>
+      </nav>
+
+      <section id="panel-dashboard" class="tab-panel" aria-label="Dashboard">
+        <div class="dashboard-grid">
+          <article class="card card--form">
+            <div class="card__head">
+              <h2 class="card__title">Submit Claim</h2>
+              <p class="card__desc muted">Multipart to <code class="code-inline">POST /claims</code> · JPEG or PNG</p>
+            </div>
+            <form id="claimForm" class="claim-form" novalidate>
+              <div class="form-grid">
+                <div class="form-field">
+                  <label for="fieldClaimId">Claim ID</label>
+                  <input
+                    id="fieldClaimId"
+                    name="claim_id"
+                    type="text"
+                    required
+                    maxlength="200"
+                    placeholder="e.g. MIC-2026-00412"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="form-field">
+                  <label for="fieldAmount">Claim amount</label>
+                  <input id="fieldAmount" name="claim_amount" type="number" required min="0" step="0.01" placeholder="0.00" />
+                </div>
+                <div class="form-field">
+                  <label for="fieldLimit">Policy limit</label>
+                  <input id="fieldLimit" name="policy_limit" type="number" required min="0" step="0.01" placeholder="0.00" />
+                </div>
+                <div class="form-field form-field--full">
+                  <label for="fieldDesc">Description</label>
+                  <textarea id="fieldDesc" name="description" maxlength="5000" placeholder="What happened?" rows="4"></textarea>
+                </div>
+                <div class="form-field form-field--full">
+                  <label class="visually-hidden" for="fieldFile">Evidence image</label>
+                  <div
+                    id="dropzone"
+                    class="dropzone"
+                    tabindex="0"
+                    role="button"
+                    aria-label="Upload evidence image, drag and drop or press to browse"
+                  >
+                    <input
+                      id="fieldFile"
+                      name="file"
+                      type="file"
+                      class="dropzone__input"
+                      accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+                      tabindex="-1"
+                    />
+                    <div class="dropzone__icon" aria-hidden="true">
+                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 16V4M8 8l4-4 4 4" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M4 20h16" stroke-linecap="round" />
+                      </svg>
+                    </div>
+                    <p class="dropzone__title"><strong>Drop image here</strong> or click to browse</p>
+                    <p class="dropzone__hint muted">PNG or JPEG · optional</p>
+                    <p id="uploadFilename" class="dropzone__filename muted" hidden></p>
+                  </div>
+                  <div id="filePreview" class="preview-panel hidden" aria-live="polite">
+                    <div class="preview-panel__label muted">Preview</div>
+                    <img id="filePreviewImg" alt="Selected claim image preview" />
+                  </div>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn--primary" id="claimSubmitBtn">
+                  <span class="btn__label">Submit claim</span>
+                  <span id="claimSubmitSpinner" class="btn__spinner spinner hidden-inline" aria-hidden="true"></span>
+                </button>
+              </div>
+            </form>
+          </article>
+
+          <article class="card card--insights">
+            <div class="card__head">
+              <h2 class="card__title">Decision Output</h2>
+              <p class="card__desc muted">Latest triage result</p>
+            </div>
+            <div id="decisionEmpty" class="decision-empty">
+              <p class="decision-empty__title">No decision yet</p>
+              <p class="decision-empty__text muted">Submit a claim or refresh to load the most recent stored outcome.</p>
+            </div>
+            <div id="decisionContent" class="decision-content hidden">
+              <p id="decisionClaimRef" class="decision-ref muted"></p>
+              <div class="decision-metric">
+                <span class="decision-metric__label">Fraud score</span>
+                <span id="decisionFraud" class="decision-metric__value fraud-score-lg">—</span>
+              </div>
+              <div class="decision-subgrid">
+                <div class="decision-sub">
+                  <span class="decision-sub__label muted">DL score</span>
+                  <span id="decisionDl" class="decision-sub__value">—</span>
+                </div>
+                <div class="decision-sub">
+                  <span class="decision-sub__label muted">Confidence</span>
+                  <span id="decisionConf" class="decision-sub__value">—</span>
+                </div>
+              </div>
+              <div class="decision-badge-row">
+                <span id="decisionBadge" class="badge-pill" hidden></span>
+                <span id="decisionHitl" class="badge-pill badge-pill--warn" hidden>Human review</span>
+                <span id="decisionMismatch" class="badge-pill badge-pill--warn" hidden>
+                  ⚠️ Inconsistent claim (image vs description)
+                </span>
+                <span id="decisionFallback" class="badge-pill badge-pill--fallback" hidden>
+                  Fallback decision (AI unavailable)
+                </span>
+              </div>
+
+              <section class="ai-analysis" aria-label="AI analysis">
+                <div class="ai-analysis__head">
+                  <div class="ai-analysis__title">
+                    <span class="ai-analysis__icon" aria-hidden="true">🔍</span>
+                    <span>AI Pipeline</span>
+                  </div>
+                  <span id="aiAnalysisBadge" class="ai-badge" hidden></span>
+                </div>
+                <div id="aiAnalysisLoading" class="ai-analysis__loading muted" hidden>
+                  <span class="spinner" aria-hidden="true"></span>
+                  <span>Analyzing image with AI…</span>
+                </div>
+                <div id="aiAnalysisError" class="ai-analysis__error" hidden></div>
+                <div id="aiPipelineSummary" class="ai-pipeline-summary muted"></div>
+                <div id="aiPipelineChecklist" class="ai-pipeline-checklist" aria-label="AI pipeline components"></div>
+                <div class="ai-analysis__grid ai-analysis__grid--meta">
+                  <div class="ai-kv">
+                    <dt>Confidence</dt>
+                    <dd id="aiModelConfidence">—</dd>
+                  </div>
+                  <div class="ai-kv">
+                    <dt>Severity</dt>
+                    <dd id="aiImageSeverity" class="severity-pill severity-pill--neutral">—</dd>
+                  </div>
+                  <div class="ai-kv">
+                    <dt>cnn_label</dt>
+                    <dd id="aiCnnLabel">—</dd>
+                  </div>
+                  <div class="ai-kv">
+                    <dt>cnn_confidence</dt>
+                    <dd id="aiCnnConfidence">—</dd>
+                  </div>
+                  <div class="ai-kv">
+                    <dt>cnn_severity</dt>
+                    <dd id="aiCnnSeverity">—</dd>
+                  </div>
+                </div>
+                <div class="ai-analysis__actions">
+                  <button type="button" class="btn btn--secondary btn--sm" id="viewAiEvidenceBtn" disabled>
+                    View AI Evidence
+                  </button>
+                </div>
+              </section>
+            </div>
+          </article>
+        </div>
+
+        <article class="card card--table">
+          <div class="card__head card__head--row">
+            <div>
+              <h2 class="card__title">Claims History</h2>
+              <p class="card__desc muted">Automated triage, confidence, and review workflow</p>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Claim ID</th>
+                  <th>Fraud score</th>
+                  <th>Decision</th>
+                  <th>Confidence</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section id="panel-operations" class="tab-panel" hidden aria-label="Analytics and operations">
+        <section class="card card--intel" aria-labelledby="fraudIntelHeading">
+          <div class="card__head">
+            <h2 id="fraudIntelHeading" class="card__title">Fraud Intelligence</h2>
+            <p class="card__desc muted">Pattern and trend view from stored claim metadata</p>
+          </div>
+          <ul class="intel-insight-list" id="intelInsights" hidden></ul>
+          <div id="intelError" class="alert alert--error" style="display: none"></div>
+          <div class="intel-cards-row" id="intelCards"></div>
+          <p class="intel-muted" id="intelReviewStrip"></p>
+          <div class="intel-panels">
+            <div class="intel-panel" id="intelFraudScores"></div>
+            <div class="intel-panel" id="intelProducts"></div>
+            <div class="intel-panel" id="intelBands"></div>
+          </div>
+          <div class="intel-panel" id="intelTimeline" style="display: none"></div>
+        </section>
+
+        <section class="card card--alerts" aria-labelledby="fraudAlertsHeading">
+          <div class="card__head">
+            <h2 id="fraudAlertsHeading" class="card__title">Fraud alerts</h2>
+            <p class="card__desc muted">Rule-based early warnings from stored claims</p>
+          </div>
+          <p id="fraudAlertsError" class="alert alert--error" style="display: none"></p>
+          <ul class="fraud-alerts-list" id="fraudAlertsList" hidden></ul>
+          <p class="fraud-alerts-empty muted" id="fraudAlertsEmpty">No anomalies detected</p>
+        </section>
+
+        <section class="card" aria-labelledby="leaderboardHeading">
+          <div class="card__head">
+            <h2 id="leaderboardHeading" class="card__title">Top risky claims</h2>
+            <p class="card__desc muted">Ranked by fraud score and triage signals</p>
+          </div>
+          <p id="leaderboardError" class="alert alert--error" style="display: none"></p>
+          <div class="toolbar-inline">
+            <label class="toolbar-inline__item">
+              <span class="muted">Show</span>
+              <input type="number" id="leaderboardLimit" class="input-narrow" min="1" max="100" value="10" />
+              <span class="muted">rows</span>
+            </label>
+            <label class="toolbar-inline__item">
+              <input type="checkbox" id="leaderboardHighOnly" />
+              <span>HIGH risk only</span>
+            </label>
+            <label class="toolbar-inline__item">
+              <input type="checkbox" id="leaderboardUnreviewedOnly" />
+              <span>Unreviewed only</span>
+            </label>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table data-table--compact">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Claim ID</th>
+                  <th>Fraud score</th>
+                  <th>Risk level</th>
+                  <th>Decision</th>
+                  <th>Confidence</th>
+                  <th>Review status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboardRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="caseMgmtHeading">
+          <div class="card__head">
+            <h2 id="caseMgmtHeading" class="card__title">Case management</h2>
+            <p class="card__desc muted">Assign investigators and track lifecycle</p>
+          </div>
+          <p id="caseMgmtError" class="alert alert--error" style="display: none"></p>
+          <div class="toolbar-inline">
+            <label class="toolbar-inline__item">
+              <input type="checkbox" id="caseMgmtUnassignedOnly" />
+              <span>Unassigned only</span>
+            </label>
+            <label class="toolbar-inline__item">
+              <span class="muted">My investigator ID</span>
+              <input type="text" id="caseMgmtMyId" class="input-mid" placeholder="e.g. investigator_1" maxlength="200" />
+            </label>
+            <label class="toolbar-inline__item">
+              <input type="checkbox" id="caseMgmtMyOnly" />
+              <span>My cases only</span>
+            </label>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table data-table--compact">
+              <thead>
+                <tr>
+                  <th>Claim ID</th>
+                  <th>Case status</th>
+                  <th>Assigned to</th>
+                  <th>Decision</th>
+                  <th>Fraud score</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="caseMgmtRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div id="imageModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="imageModalTitle" hidden>
+      <div class="modal">
+        <div class="modal__header">
+          <h2 id="imageModalTitle" class="modal__title">Claim image</h2>
+          <button type="button" class="btn btn--secondary btn--sm" id="imageModalClose">Close</button>
+        </div>
+        <div class="modal__body">
+          <p id="imageModalMeta" class="muted modal__meta"></p>
+          <div class="evidence-grid" aria-live="polite">
+            <figure class="evidence-figure">
+              <figcaption class="evidence-caption">Original</figcaption>
+              <img id="imageModalOriginalImg" class="modal__img" alt="Stored claim image preview" />
+            </figure>
+            <figure class="evidence-figure">
+              <figcaption class="evidence-caption">AI Evidence (Grad-CAM)</figcaption>
+              <img id="imageModalEvidenceImg" class="modal__img" alt="Grad-CAM heatmap overlay" />
+            </figure>
+          </div>
+          <p id="imageModalHint" class="muted evidence-hint"></p>
+        </div>
       </div>
-      <div id="status" class="muted" style="margin-bottom: 12px"></div>
-
-      <section class="fraud-intel" aria-labelledby="fraudIntelHeading">
-        <h2 id="fraudIntelHeading">Fraud Intelligence</h2>
-        <p class="intel-sub">Lightweight pattern and trend view from stored claim metadata.</p>
-        <ul class="intel-insight-list" id="intelInsights" hidden></ul>
-        <div id="intelError" class="intel-error" style="display: none"></div>
-        <div class="intel-cards-row" id="intelCards"></div>
-        <p class="intel-muted" id="intelReviewStrip" style="margin: -4px 0 16px"></p>
-        <div class="intel-panels">
-          <div class="intel-panel" id="intelFraudScores"></div>
-          <div class="intel-panel" id="intelProducts"></div>
-          <div class="intel-panel" id="intelBands"></div>
-        </div>
-        <div class="intel-panel" id="intelTimeline" style="display: none"></div>
-      </section>
-
-      <section class="fraud-alerts" aria-labelledby="fraudAlertsHeading">
-        <h2 id="fraudAlertsHeading">⚠️ Fraud Alerts</h2>
-        <p class="alerts-sub">Rule-based early warnings from stored claims (local, no ML).</p>
-        <p id="fraudAlertsError" class="fraud-alerts-error" style="display: none"></p>
-        <ul class="fraud-alerts-list" id="fraudAlertsList" hidden></ul>
-        <p class="fraud-alerts-empty" id="fraudAlertsEmpty">No anomalies detected</p>
-      </section>
-
-      <section class="leaderboard" aria-labelledby="leaderboardHeading">
-        <h2 id="leaderboardHeading">🏆 Top Risky Claims</h2>
-        <p class="lb-sub">Ranked by fraud score plus triage signals (investigate, unreviewed, low confidence).</p>
-        <p id="leaderboardError" class="leaderboard-error" style="display: none"></p>
-        <div class="leaderboard-toolbar">
-          <label>
-            <span>Show</span>
-            <input type="number" id="leaderboardLimit" min="1" max="100" value="10" />
-            <span>rows</span>
-          </label>
-          <label>
-            <input type="checkbox" id="leaderboardHighOnly" />
-            <span>HIGH risk only</span>
-          </label>
-          <label>
-            <input type="checkbox" id="leaderboardUnreviewedOnly" />
-            <span>Unreviewed only</span>
-          </label>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Claim ID</th>
-              <th>Fraud score</th>
-              <th>Risk level</th>
-              <th>Decision</th>
-              <th>Confidence</th>
-              <th>Review status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="leaderboardRows"></tbody>
-        </table>
-      </section>
-
-      <section class="case-mgmt" aria-labelledby="caseMgmtHeading">
-        <h2 id="caseMgmtHeading">📂 Case Management</h2>
-        <p class="case-mgmt-sub">Assign investigators and track investigation lifecycle (local workflow).</p>
-        <p id="caseMgmtError" class="case-mgmt-error" style="display: none"></p>
-        <div class="case-mgmt-toolbar">
-          <label>
-            <input type="checkbox" id="caseMgmtUnassignedOnly" />
-            <span>Unassigned only</span>
-          </label>
-          <label>
-            <span>My investigator ID</span>
-            <input type="text" id="caseMgmtMyId" placeholder="e.g. investigator_1" maxlength="200" />
-          </label>
-          <label>
-            <input type="checkbox" id="caseMgmtMyOnly" />
-            <span>My cases only</span>
-          </label>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Claim ID</th>
-              <th>Case status</th>
-              <th>Assigned to</th>
-              <th>Decision</th>
-              <th>Fraud score</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="caseMgmtRows"></tbody>
-        </table>
-      </section>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Claim</th>
-            <th>Fraud</th>
-            <th>Decision</th>
-            <th>Confidence</th>
-            <th>Review</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
     </div>
 
     <script src="./app.js"></script>

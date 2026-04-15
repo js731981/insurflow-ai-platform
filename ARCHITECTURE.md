@@ -38,6 +38,7 @@ Decision Pipeline (Multi-Agent System)
 │
 └── Decision Agent (Fusion Layer)
      → Optional DL fraud probability fusion (small local head; torch if available)
+     → Optional image-signal fusion (heuristic or CNN-driven damage severity)
 ↓
 HITL (Human-in-the-Loop)
 ↓
@@ -54,13 +55,15 @@ Memory Layer (Atomic Write)
 ## End-to-End Flow
 
 Claim received via API
+Optional claim image received (JSON `image_base64` or multipart upload)
 Embedding generated from claim description (or JSON snapshot if description is empty)
 Similar claims retrieved from vector store (weighted ranking; optional metadata/decision/product filters)
 Compact similar-claims context built and injected into the fraud prompt (token-capped)
 Fraud Agent evaluates risk using LLM + context (strict structured JSON output)
 Policy Agent validates rules and constraints
 Optional DL fraud head computes a fraud probability (small local model; deterministic fallback without torch)
-Decision Agent fuses fraud + policy (+ optional DL score + majority reviewed outcome among similar hits) → final decision
+Optional image analysis runs (heuristic CV; optional CNN classification when weights are available)
+Decision Agent fuses fraud + policy (+ optional DL score + optional image severity + majority reviewed outcome among similar hits) → final decision
 HITL triggered if:
 decision == INVESTIGATE
 calibrated_confidence < threshold
@@ -75,6 +78,10 @@ Future decisions leverage stored knowledge
 - Handles incoming requests
 - Exposes endpoints for claims, review, and inference
 - Serves Swagger UI and minimal dashboard
+- Supports JSON and multipart claim submission for UI-friendly image uploads
+- Exposes image explainability endpoints for stored claims:
+  - `GET /claims/{claim_id}/image-preview`
+  - `GET /claims/{claim_id}/gradcam` (503 when CNN/weights unavailable)
 
 ---
 
@@ -144,6 +151,8 @@ All data is stored in a **single upsert operation**:
 - timestamp
 - explanation
 - review_status
+- has_image / image preview + image signals (best-effort)
+- optional CNN diagnostics (label/confidence) when enabled
 
 ✔ Ensures consistency  
 ✔ Avoids partial updates  

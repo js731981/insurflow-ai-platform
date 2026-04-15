@@ -3,16 +3,19 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any, NamedTuple, Optional, Tuple, TypedDict
 
 from app.agents.base_agent import BaseAgent
 from app.core.config import settings
 from app.services.llm_service import LLMService
+from app.services.llm.providers.base import LLMProviderError
 
 logger = logging.getLogger(__name__)
 
 _RAW_LOG_MAX_CHARS = 12_000
-
+_MAX_DESCRIPTION_CHARS = 300
+_FRAUD_MAX_TOKENS = 300
 
 def _truncate_for_log(text: str, max_chars: int = _RAW_LOG_MAX_CHARS) -> tuple[str, bool]:
     if len(text) <= max_chars:
@@ -47,6 +50,7 @@ class FraudAgentInput(TypedDict, total=False):
     rag_filter_decision: str
     rag_metadata_filter: dict[str, Any]
     similar_claims_context: str
+    image_features: dict[str, Any]
 
 
 def _default_explanation() -> dict[str, Any]:
@@ -67,11 +71,25 @@ def _claim_description_for_llm(input_data: dict[str, Any]) -> str:
     """Minimal claim text for the fraud prompt (description only)."""
     desc = str(input_data.get("description") or "").strip()
     if desc:
-        return desc
+        return desc[:_MAX_DESCRIPTION_CHARS]
     cid = str(input_data.get("claim_id") or "").strip()
     if cid:
-        return f"(No claim description provided; claim_id={cid}.)"
-    return "(No claim description provided.)"
+        return f"(No claim description provided; claim_id={cid}.)"[:_MAX_DESCRIPTION_CHARS]
+    return "(No claim description provided.)"[:_MAX_DESCRIPTION_CHARS]
+
+
+def _image_features_one_line(image_features: dict[str, Any]) -> str:
+    if not image_features or image_features.get("present") is False:
+        return "Image: not provided"
+    damage_type = str(image_features.get("damage_type") or "").strip()
+    severity = str(image_features.get("severity") or "").strip()
+    if damage_type and severity:
+        return f"Image: {severity} severity {damage_type}"
+    if severity:
+        return f"Image: {severity} severity damage"
+    if damage_type:
+        return f"Image: {damage_type}"
+    return "Image: damage"
 
 
 def _strip_markdown_json_fence(text: str) -> str:
@@ -145,169 +163,268 @@ class FraudAgent(BaseAgent):
         super().__init__()
         self._llm_service = llm_service
 
-    def _build_fraud_prompt(self, *, strict_retry: bool) -> str:
-        retry_prefix = ""
-        if strict_retry:
-            retry_prefix = (
-                "Your previous response was invalid. Return ONLY valid JSON.\n\n"
-            )
-        schema_example = (
-            "Your JSON MUST match this shape (replace example values; keep all keys):\n"
-            "{\n"
-            '  "fraud_score": 0.0,\n'
-            '  "decision": "APPROVED",\n'
-            '  "confidence": 0.0,\n'
-            '  "entities": {},\n'
-            '  "explanation": {\n'
-            '    "summary": "string",\n'
-            '    "key_factors": ["string", "string"]\n'
-            "  }\n"
-            "}\n"
-            'Use "decision" as exactly one of: "APPROVED", "INVESTIGATE", "REJECTED".\n'
-            "Optional inside explanation: similar_case_reference (string; empty if none).\n"
-        )
-        instructions = (
-            "You are a micro-insurance fraud analyst.\n\n"
-            "You MUST return ONLY valid JSON.\n"
-            "Do NOT include any explanation outside JSON.\n"
-            "Do NOT include markdown or text.\n"
-            "If unsure, still return valid JSON.\n\n"
-            f"{schema_example}\n"
-            "Rules: fraud_score 0=low risk, 1=high risk. Missing info → lower score, note in key_factors. "
-            "explanation.summary must be non-empty. explanation.key_factors must have at least 2 strings. "
-            "With RAG context lines, you may set similar_case_reference to a one-line echo of those priors.\n"
-        )
-        return retry_prefix + instructions
+    def _build_fraud_prompt(
+        self,
+        *,
+        description: str,
+        amount: float,
+        image_severity: str,
+    ) -> str:
+        # Performance-first prompt (small + deterministic). Avoid RAG dumps to prevent timeouts.
+        # IMPORTANT: Keep this aligned with the parser's required fields.
+        return f"""
+You MUST return ONLY valid JSON.
 
-    def _build_fraud_context(self, *, claim_description: str, similar_claims_context: str) -> str:
-        parts = [f"Claim description:\n{claim_description}"]
-        similar = similar_claims_context.strip()
-        if similar:
-            parts.append(f"Similar claims (compact retrieval context; not ground truth):\n{similar}")
-        return "\n\n".join(parts)
+Do NOT include any explanation text.
+
+Return exactly this format:
+
+{{
+"fraud_score": number (0 to 1),
+"decision": "APPROVE" | "INVESTIGATE" | "REJECT",
+"reasons": ["reason1", "reason2"]
+}}
+
+Claim:
+Description: {description}
+Amount: {amount}
+Image severity: {image_severity}
+""".strip()
+
+    def _build_fixup_prompt(self, *, bad_output: str) -> str:
+        clipped = (bad_output or "").strip()
+        if len(clipped) > 1500:
+            clipped = clipped[:1500]
+        return f"""
+You returned output that is NOT valid JSON.
+
+Fix it and return ONLY valid JSON, with exactly this format:
+
+{{
+"fraud_score": number (0 to 1),
+"decision": "APPROVE" | "INVESTIGATE" | "REJECT",
+"reasons": ["reason1", "reason2"]
+}}
+
+Bad output to fix:
+{clipped}
+""".strip()
+
+    def _prompt_fields(self, input_data: dict[str, Any]) -> tuple[str, float, str]:
+        description = _claim_description_for_llm(input_data)
+        try:
+            amount = float(input_data.get("claim_amount") or input_data.get("amount") or 0.0)
+        except (TypeError, ValueError):
+            amount = 0.0
+
+        image_features = input_data.get("image_features")
+        if not isinstance(image_features, dict):
+            image_features = {"present": False}
+        image_severity = str(image_features.get("severity") or "").strip() or "unknown"
+        return description, round(float(amount), 2), image_severity
 
     async def _execute(self, input_data: dict[str, Any]) -> dict[str, Any]:
         claim_id = str(input_data.get("claim_id") or "").strip() or "unknown"
-        claim_description = _claim_description_for_llm(input_data)
-        similar = str(input_data.get("similar_claims_context") or "").strip()
-
-        max_parse_retries = settings.max_llm_retries if settings.strict_json_mode else 0
-        total_attempts = 1 + max(0, max_parse_retries)
+        start_wall_s = time.time()
+        start_perf = time.perf_counter()
+        image_features = input_data.get("image_features")
+        if not isinstance(image_features, dict):
+            image_features = {"present": False, "damage_type": "n/a", "severity": "n/a", "confidence": 0.0}
 
         total_latency_ms = 0
         last_raw = ""
+        llm_response_time_ms: int | None = None
 
-        for attempt in range(total_attempts):
-            strict_retry = attempt > 0
-            prompt = self._build_fraud_prompt(strict_retry=strict_retry)
-            context = self._build_fraud_context(
-                claim_description=claim_description,
-                similar_claims_context=similar,
-            )
-            gen_kw: dict[str, Any] = {"temperature": 0.1 if strict_retry else 0.2}
+        # Stay within the upstream FraudAgent SLA by preventing router-level retries here.
+        # The orchestrator already applies its own hard cap; multi-attempt LLM retries can
+        # otherwise cause cancellation mid-flight and produce "agent timed out" fallbacks.
+        # IMPORTANT: Do not shrink below the LLM timeout floor (>=60s). If the overall
+        # request has a tighter SLA, the outer timeout will cancel the in-flight request.
+        # Separate, explicit timeout boundaries:
+        # - LLM timeout: caps ONLY the network/model call.
+        # - Agent timeout: overall budget for prompt build + LLM + parsing (not enforced here; orchestrator should not cancel post-LLM).
+        llm_timeout_s = float(settings.llm_timeout_s)
+        effective_timeout_s = max(60.0, llm_timeout_s)
+        agent_timeout_s = float(settings.fraud_agent_timeout_s)
 
-            try:
-                completion = await self._llm_service.generate(
-                    prompt=prompt,
-                    context=context,
-                    generation_kwargs=gen_kw,
-                    claim_id=claim_id,
-                )
-            except Exception as exc:
-                logger.exception(
-                    "fraud_llm_failed",
-                    extra={"claim_id": claim_id, "error": f"{type(exc).__name__}: {exc}"},
-                )
-                is_timeout = type(exc).__name__ == "TimeoutError" or "timeout" in str(exc).lower()
-                summary = (
-                    "Automated fraud analysis timed out; escalate for manual review."
-                    if is_timeout
-                    else "Automated fraud analysis failed; escalate for manual review."
-                )
-                return {
-                    "fraud_score": 0.5,
-                    "decision": "INVESTIGATE",
-                    "confidence": 0.5,
-                    "entities": {},
-                    "explanation": {
-                        "summary": summary,
-                        "key_factors": [
-                            f"LLM or transport error: {type(exc).__name__}.",
-                            "No structured fraud assessment was produced.",
-                        ],
-                        "similar_case_reference": "",
-                    },
-                    "_llm_failed": True,
-                    "_llm_latency_ms": 0,
-                }
+        description, amount, image_severity = self._prompt_fields(input_data)
+        prompt = self._build_fraud_prompt(description=description, amount=amount, image_severity=image_severity)
+        gen_kw: dict[str, Any] = {
+            # Provider-agnostic cap. OllamaProvider maps `max_tokens` to `options.num_predict`.
+            "max_tokens": _FRAUD_MAX_TOKENS,
+            "temperature": 0.2,
+        }
 
-            last_raw = completion.text or ""
-            total_latency_ms += int(completion.latency_ms)
-
-            raw_preview, raw_trunc = _truncate_for_log(last_raw)
-            logger.info(
-                "fraud_llm_raw_output",
-                extra={
-                    "claim_id": claim_id,
-                    "attempt": attempt + 1,
-                    "strict_retry": strict_retry,
-                    "raw_char_len": len(last_raw),
-                    "raw_truncated": raw_trunc,
-                    "raw_text": raw_preview,
-                },
-            )
-
-            prepared = self._prepare_model_text(last_raw)
-            result = self._parse_fraud_response(prepared)
-            if result.ok:
-                out: dict[str, Any] = {
-                    "fraud_score": result.fraud_score,
-                    "decision": result.decision,
-                    "confidence": result.confidence,
-                    "entities": result.entities,
-                    "explanation": result.explanation,
-                    "_llm_latency_ms": total_latency_ms,
-                }
-                return out
-
-            logger.warning(
-                "fraud_llm_json_parse_failed",
-                extra={
-                    "claim_id": claim_id,
-                    "attempt": attempt + 1,
-                    "error": result.error,
-                },
-            )
-
-            if attempt < total_attempts - 1:
-                logger.info(
-                    "fraud_llm_json_retry_scheduled",
-                    extra={
-                        "claim_id": claim_id,
-                        "from_attempt": attempt + 1,
-                        "to_attempt": attempt + 2,
-                        "max_attempts": total_attempts,
-                    },
-                )
-
-        logger.warning(
-            "fraud_llm_json_parse_exhausted",
+        prompt_length = len(prompt)
+        logger.info(
+            "fraud_llm_prompt_built",
             extra={
                 "claim_id": claim_id,
-                "attempts": total_attempts,
-                "last_error": result.error,
+                "prompt_length": prompt_length,
+                "start_time": start_wall_s,
+                "llm_timeout_s": float(effective_timeout_s),
+                "agent_timeout_s": float(agent_timeout_s),
             },
         )
 
-        d = _default_explanation()
+        try:
+            completion = await self._llm_service.generate(
+                prompt=prompt,
+                context=None,
+                generation_kwargs=gen_kw,
+                claim_id=claim_id,
+                timeout_s=effective_timeout_s,
+                max_attempts=1,
+            )
+        except Exception as exc:
+            if isinstance(exc, LLMProviderError) and exc.status_code == 404:
+                logger.warning(
+                    "Model not available, falling back to safe decision",
+                    extra={"claim_id": claim_id, "provider": exc.provider},
+                )
+            is_timeout = type(exc).__name__ == "TimeoutError" or "timeout" in str(exc).lower()
+
+            logger.exception(
+                "fraud_llm_failed",
+                extra={"claim_id": claim_id, "error": f"{type(exc).__name__}: {exc}"},
+            )
+            return {
+                "fraud_score": 0.5,
+                "decision": "INVESTIGATE",
+                "confidence": 0.5,
+                "entities": {},
+                "explanation": {
+                    "summary": "AI analysis delayed or unavailable; routed for human review",
+                    "key_factors": [
+                        f"LLM or transport error: {type(exc).__name__}.",
+                        "No structured fraud assessment was produced.",
+                    ],
+                    "similar_case_reference": "",
+                },
+                "_llm_failed": True,
+                "_timeout_triggered": bool(is_timeout),
+                "_llm_timeout": bool(is_timeout),
+                "_llm_parse_error": False,
+                "_llm_latency_ms": 0,
+                "_llm_response_time_ms": 0,
+                "_agent_total_time_ms": int((time.perf_counter() - start_perf) * 1000),
+            }
+
+        last_raw = completion.text or ""
+        total_latency_ms += int(completion.latency_ms)
+        llm_response_time_ms = int((time.perf_counter() - start_perf) * 1000)
+
+        logger.info(
+            "fraud_llm_completed",
+            extra={
+                "claim_id": claim_id,
+                "llm_time_ms": int(completion.latency_ms),
+                "llm_response_time_ms": int(llm_response_time_ms),
+                "provider": completion.provider,
+                "model": completion.model,
+                "timeout_s": float(effective_timeout_s),
+            },
+        )
+
+        raw_preview, raw_trunc = _truncate_for_log(last_raw)
+        logger.info(
+            "fraud_llm_raw_output",
+            extra={
+                "claim_id": claim_id,
+                "raw_char_len": len(last_raw),
+                "raw_truncated": raw_trunc,
+                "raw_text": raw_preview,
+            },
+        )
+
+        # Requested: explicit raw response message for quick log scanning.
+        logger.info("LLM RAW RESPONSE: %s", raw_preview)
+
+        prepared = self._prepare_model_text(last_raw)
+        result = self._parse_fraud_response(prepared)
+        if not result.ok and int(getattr(settings, "max_llm_retries", 0) or 0) > 0:
+            logger.info(
+                "fraud_llm_retry_parse_fixup",
+                extra={"claim_id": claim_id, "previous_error": result.error},
+            )
+            try:
+                fix_prompt = self._build_fixup_prompt(bad_output=prepared)
+                fix_completion = await self._llm_service.generate(
+                    prompt=fix_prompt,
+                    context=None,
+                    generation_kwargs={**gen_kw, "temperature": 0.0},
+                    claim_id=claim_id,
+                    timeout_s=effective_timeout_s,
+                    max_attempts=1,
+                )
+                last_raw = fix_completion.text or ""
+                total_latency_ms += int(fix_completion.latency_ms)
+                prepared = self._prepare_model_text(last_raw)
+                result = self._parse_fraud_response(prepared)
+            except Exception as exc:
+                logger.exception(
+                    "fraud_llm_retry_failed",
+                    extra={"claim_id": claim_id, "error": f"{type(exc).__name__}: {exc}"},
+                )
+        if result.ok:
+            agent_total_ms = int((time.perf_counter() - start_perf) * 1000)
+            logger.info(
+                "fraud_llm_success",
+                extra={
+                    "claim_id": claim_id,
+                    "provider": completion.provider,
+                    "model": completion.model,
+                    "llm_time_ms": int(completion.latency_ms),
+                    "start_time": start_wall_s,
+                    "llm_response_time_ms": int(llm_response_time_ms or 0),
+                    "agent_total_time_ms": int(agent_total_ms),
+                },
+            )
+            out: dict[str, Any] = {
+                "fraud_score": result.fraud_score,
+                "decision": result.decision,
+                "confidence": result.confidence,
+                "entities": result.entities,
+                "explanation": result.explanation,
+                "_llm_latency_ms": total_latency_ms,
+                "_llm_timeout": False,
+                "_llm_parse_error": False,
+                "_llm_response_time_ms": int(llm_response_time_ms or 0),
+                "_agent_total_time_ms": int(agent_total_ms),
+            }
+            return out
+
+        logger.warning(
+            "fraud_llm_json_parse_failed",
+            extra={
+                "claim_id": claim_id,
+                "error": result.error,
+                "start_time": start_wall_s,
+                "llm_response_time_ms": int(llm_response_time_ms or 0),
+                "agent_total_time_ms": int((time.perf_counter() - start_perf) * 1000),
+            },
+        )
+
         return {
             "fraud_score": 0.5,
             "decision": "INVESTIGATE",
             "confidence": 0.5,
             "entities": {},
-            "explanation": d,
+            "explanation": {
+                "summary": "AI analysis delayed or unavailable; routed for human review",
+                "key_factors": [
+                    "Model response was not usable structured JSON.",
+                    "Routed to human review to maintain responsiveness.",
+                ],
+                "similar_case_reference": "",
+            },
             "_llm_failed": True,
+            "_timeout_triggered": False,
+            "_llm_timeout": False,
+            "_llm_parse_error": True,
             "_llm_latency_ms": total_latency_ms,
+            "_llm_response_time_ms": int(llm_response_time_ms or 0),
+            "_agent_total_time_ms": int((time.perf_counter() - start_perf) * 1000),
         }
 
     def _prepare_model_text(self, text: str) -> str:
@@ -363,8 +480,20 @@ class FraudAgent(BaseAgent):
                 err or "json_load_failed",
             )
 
+        if "fraud_score" not in payload:
+            return FraudParseResult(
+                0.5,
+                "INVESTIGATE",
+                0.5,
+                _default_explanation(),
+                {},
+                False,
+                "missing_fraud_score",
+            )
+
         fraud_score_raw: Optional[Any] = payload.get("fraud_score")
         decision_raw: Optional[Any] = payload.get("decision")
+        reasons_raw: Optional[Any] = payload.get("reasons")
         confidence_raw: Optional[Any] = payload.get("confidence")
         explanation_raw: Optional[Any] = payload.get("explanation")
         entities_raw: Optional[Any] = payload.get("entities")
@@ -380,6 +509,11 @@ class FraudAgent(BaseAgent):
         decision = "INVESTIGATE"
         if isinstance(decision_raw, str) and decision_raw.strip():
             d_u = decision_raw.strip().upper()
+            # Normalize synonyms to internal canonical words used across the pipeline.
+            if d_u in ("APPROVE", "APPROVED"):
+                d_u = "APPROVED"
+            elif d_u in ("REJECT", "REJECTED"):
+                d_u = "REJECTED"
             if d_u in ("APPROVED", "REJECTED", "INVESTIGATE"):
                 decision = d_u
 
@@ -391,18 +525,26 @@ class FraudAgent(BaseAgent):
             confidence = 0.5
         confidence = min(1.0, max(0.0, confidence))
 
-        explanation = _normalize_explanation(explanation_raw, payload)
+        # Prefer strict "reasons" output (requested). Map it into our existing explanation shape.
+        reasons: list[str] = []
+        if isinstance(reasons_raw, list):
+            reasons = [str(x).strip() for x in reasons_raw if str(x).strip()][:8]
+        if reasons:
+            factors = (reasons + ["Insufficient structured explanation from model."])[:2]
+            explanation = {
+                "summary": "Fraud assessment produced by LLM.",
+                "key_factors": factors,
+                "similar_case_reference": "",
+            }
+        else:
+            explanation = _normalize_explanation(explanation_raw, payload)
 
         entities: dict[str, Any] = {}
         if isinstance(entities_raw, dict):
             entities = {str(k): v for k, v in entities_raw.items()}
 
         factors_list = explanation.get("key_factors")
-        ok = bool(
-            str(explanation.get("summary") or "").strip()
-            and isinstance(factors_list, list)
-            and len(factors_list) >= 2
-        )
+        ok = bool(str(explanation.get("summary") or "").strip() and isinstance(factors_list, list))
         if not ok:
             return FraudParseResult(
                 fraud_score,
@@ -411,7 +553,7 @@ class FraudAgent(BaseAgent):
                 explanation,
                 entities,
                 False,
-                "schema_incomplete_explanation",
+                "schema_incomplete",
             )
 
         return FraudParseResult(
@@ -446,7 +588,9 @@ def _normalize_explanation(explanation_raw: Any, payload: dict[str, Any]) -> dic
                 factors = [legacy.strip()]
             if len(factors) < 2:
                 factors = (factors + ["Insufficient structured explanation from model."])[:4]
-        return {"summary": summary, "key_factors": factors[:4], "similar_case_reference": ref}
+        # Enforce "max 2 points" contract while keeping the parser requirement (>=2).
+        factors = (factors + ["Insufficient structured explanation from model."])[:2]
+        return {"summary": summary, "key_factors": factors[:2], "similar_case_reference": ref}
 
     legacy = payload.get("explanation")
     if isinstance(legacy, str) and legacy.strip():
