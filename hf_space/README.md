@@ -1,3 +1,14 @@
+---
+title: Insurance AI Decision Demo
+emoji: 🤖
+colorFrom: blue
+colorTo: green
+sdk: gradio
+sdk_version: "4.31.0"
+app_file: app.py
+pinned: false
+---
+
 # AI Insurance Claim Decision Demo
 
 Interactive Hugging Face Space for the **Insurance AI Decision Platform**: a product-style, explainable triage experience with fraud visualization, pipeline attribution, and optional live API integration.
