@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import html
 import io
+import json
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
 import gradio as gr
 
+from hf_space.config import DEMO_IMAGES
 from hf_space.utils import api_client
-from hf_space.utils.demo_assets import ensure_demo_images
 from hf_space.utils.formatters import (
     analytics_panel_html,
     breakdown_panel_html,
-    build_report_dict,
     decision_card_html,
     explanation_card_html,
     format_explanation,
@@ -20,7 +22,6 @@ from hf_space.utils.formatters import (
     inconsistency_banner_html,
     latency_panel_html,
     model_insights_html,
-    report_json_bytes,
     pipeline_panel_html,
     severity_from_cnn_label,
 )
@@ -29,10 +30,29 @@ from hf_space.utils.gradcam_utils import (
     compute_edge_attention_map,
     pil_to_png_bytes,
 )
-from hf_space.utils.image_utils import load_pil
+from hf_space.utils.image_utils import load_image_from_url, load_pil, resolve_claim_image
 from hf_space.utils.inference import run_inference
 
 ROOT = Path(__file__).resolve().parents[1]
+
+REPORT_HINT_IDLE = (
+    "<div class='report-hint'><strong>Click to download JSON report</strong> (generates a file from the latest analysis).</div>"
+)
+REPORT_HINT_READY = (
+    "<div class='report-hint'><strong>Click to download JSON report</strong> (uses the most recent result).</div>"
+)
+REPORT_HINT_BUSY = "<div class='report-hint'>Building results…</div>"
+
+
+def _report_download_meta(path: str) -> str:
+    name = Path(path).name
+    esc = html.escape(name, quote=True)
+    return (
+        f"<div class='report-file-meta' title=\"{esc}\">"
+        f"<span class='report-file-name'>{esc}</span>"
+        f"<span class='report-file-hint'>Click to download JSON report</span>"
+        "</div>"
+    )
 
 
 def _load_css() -> str:
@@ -40,47 +60,112 @@ def _load_css() -> str:
     return p.read_text(encoding="utf-8")
 
 
-def _load_scenario(which: str):
-    ensure_demo_images(ROOT)
-    demo_dir = ROOT / "assets" / "demo_images"
-    if which == "low":
-        return (
-            "CLM-DEMO-LOW-001",
-            "Minor scuff on bumper after a parking lot tap. Authorized shop quoted $185 for paint touch-up.",
-            185.0,
-            5000.0,
-            str(demo_dir / "low_damage_valid.jpg"),
-        )
-    if which == "fraud":
-        return (
-            "CLM-DEMO-FRAUD-002",
-            "Phone screen is badly cracked and shattered after a drop on concrete; urgent replacement needed.",
-            420.0,
-            500.0,
-            str(demo_dir / "no_damage_fraud.jpg"),
-        )
-    if which == "major":
-        return (
-            "CLM-DEMO-MAJOR-003",
-            "Vehicle collision caused severe panel damage and shattered glass; repair center total quote pending.",
-            8500.0,
-            6000.0,
-            str(demo_dir / "major_damage_high.jpg"),
-        )
-    raise ValueError(which)
+def load_demo_case(case_type: str) -> dict[str, Any]:
+    if case_type == "low":
+        return {
+            "claim_id": "CLM-DEMO-LOW-001",
+            "description": (
+                "Minor scuff on bumper after a parking lot tap. Authorized shop quoted $185 for paint touch-up."
+            ),
+            "amount": 185.0,
+            "policy_limit": 5000.0,
+            "image_url": DEMO_IMAGES["minor_crack"],
+        }
+    if case_type == "fraud":
+        return {
+            "claim_id": "CLM-DEMO-FRAUD-002",
+            "description": (
+                "Phone screen is badly cracked and shattered after a drop on concrete; urgent replacement needed."
+            ),
+            "amount": 420.0,
+            "policy_limit": 500.0,
+            "image_url": DEMO_IMAGES["no_damage"],
+        }
+    if case_type == "major":
+        return {
+            "claim_id": "CLM-DEMO-MAJOR-003",
+            "description": "Mobile screen major crack after a drop; display failure and urgent replacement required.",
+            "amount": 1000.0,
+            "policy_limit": 6000.0,
+            "image_url": DEMO_IMAGES["major_crack"],
+        }
+    raise ValueError(case_type)
 
 
 def apply_scenario(which: str):
-    cid, desc, amt, lim, rel = _load_scenario(which)
-    from PIL import Image
+    try:
+        case = load_demo_case(which)
+    except ValueError:
+        return (
+            "",
+            "",
+            0.0,
+            1000.0,
+            None,
+            None,
+            None,
+            "",
+            "<div class='caption-text'>Invalid demo scenario.</div>",
+        )
 
-    p = Path(rel)
-    img = Image.open(p).convert("RGB") if p.exists() else None
-    return cid, desc, amt, lim, img
+    url = str(case["image_url"])
+    try:
+        pil = load_image_from_url(url)
+    except Exception:
+        return (
+            case["claim_id"],
+            case["description"],
+            case["amount"],
+            case["policy_limit"],
+            None,
+            None,
+            None,
+            "",
+            "<div class='caption-text'>Demo image failed to load. You can upload an image manually.</div>",
+        )
+
+    return (
+        case["claim_id"],
+        case["description"],
+        case["amount"],
+        case["policy_limit"],
+        pil,
+        pil,
+        url,
+        "",
+        "",
+    )
 
 
 def mirror_preview(im: Any) -> Any:
     return im
+
+
+def on_image_change(img: Any, _demo_url: Optional[str]) -> tuple[Any, Optional[str]]:
+    if img is None:
+        return None, None
+    return mirror_preview(img), gr.update()
+
+
+def _analysis_error_response(message: str) -> tuple[Any, ...]:
+    empty = "<div class='ds-card'><div class='section-h'>{title}</div><div class='caption-text'>{body}</div></div>"
+    return (
+        f"<div class='status-line status-line--warn'>{html.escape(message)}</div>",
+        empty.format(title="Fraud score", body="Run an analysis."),
+        empty.format(title="Decision", body="—"),
+        empty.format(title="Model insights", body="—"),
+        empty.format(title="Explanation", body="—"),
+        empty.format(title="Breakdown", body="—"),
+        empty.format(title="Pipeline", body="—"),
+        empty.format(title="Latency", body="—"),
+        "",
+        None,
+        None,
+        False,
+        None,
+        None,
+        REPORT_HINT_IDLE,
+    )
 
 
 def refresh_analytics_html() -> str:
@@ -212,11 +297,19 @@ def analyze_claim(
     amount: float,
     policy_limit: float,
     image: Any,
+    image_url_typed: str,
+    image_url_state: Optional[str],
     fraud_simulation: bool,
     use_backend: bool,
     gradcam_opacity: float,
     show_attention: bool,
 ):
+    combined_url = ((image_url_typed or "").strip() or (image_url_state or "").strip() or None)
+    eff, url_err = resolve_claim_image(image, combined_url)
+    if eff is None:
+        msg = url_err or "No image provided"
+        return _analysis_error_response(msg)
+
     err: Optional[str] = None
     unified: dict[str, Any]
     gc_bytes: Optional[bytes] = None
@@ -225,22 +318,21 @@ def analyze_claim(
     try:
         if use_backend and api_client.is_configured():
             unified, gc_bytes, gc_server = _run_backend(
-                claim_id, description, amount, policy_limit, image, fraud_simulation
+                claim_id, description, amount, policy_limit, eff, fraud_simulation
             )
         else:
             unified = run_inference(
                 description,
                 float(amount or 0.0),
                 float(policy_limit or 0.0),
-                image,
+                eff,
                 fraud_simulation=fraud_simulation,
             )
-            if image is not None:
-                try:
-                    heat = compute_edge_attention_map(load_pil(image))
-                    gc_bytes = pil_to_png_bytes(heat)
-                except Exception:
-                    gc_bytes = None
+            try:
+                heat = compute_edge_attention_map(load_pil(eff))
+                gc_bytes = pil_to_png_bytes(heat)
+            except Exception:
+                gc_bytes = None
             gc_server = False
     except Exception as exc:
         err = str(exc)
@@ -248,7 +340,7 @@ def analyze_claim(
             description,
             float(amount or 0.0),
             float(policy_limit or 0.0),
-            image,
+            eff,
             fraud_simulation=fraud_simulation,
         )
         unified["explanation"] = (
@@ -257,12 +349,11 @@ def analyze_claim(
         )
         gc_bytes = None
         gc_server = False
-        if image is not None:
-            try:
-                heat = compute_edge_attention_map(load_pil(image))
-                gc_bytes = pil_to_png_bytes(heat)
-            except Exception:
-                pass
+        try:
+            heat = compute_edge_attention_map(load_pil(eff))
+            gc_bytes = pil_to_png_bytes(heat)
+        except Exception:
+            pass
 
     note = (
         "Live API response"
@@ -275,30 +366,22 @@ def analyze_claim(
     views = _unified_to_views(unified, backend_note=note, fraud_simulation=fraud_simulation)
 
     gview = composite_gradcam_view(
-        image,
+        eff,
         gc_bytes,
         gradcam_opacity,
         show_attention,
         server_overlay=gc_server,
     )
 
-    report = build_report_dict(
+    report = build_report(
         claim_id=claim_id or str(unified.get("claim_id") or ""),
         description=description or "",
         claim_amount=float(amount or 0.0),
         policy_limit=float(policy_limit or 0.0),
-        decision=str(unified.get("decision") or ""),
-        explanation=str(unified.get("explanation") or ""),
-        cnn_label=str(unified.get("cnn_label") or ""),
-        fraud_score=float(unified.get("fraud_score") or 0.0),
-        source=str(unified.get("source") or "local"),
-        breakdown=unified.get("breakdown") if isinstance(unified.get("breakdown"), dict) else None,
-        pipeline=list(unified.get("pipeline") or []) if unified.get("pipeline") else None,
-        latency_ms=unified.get("latency_ms") if isinstance(unified.get("latency_ms"), dict) else None,
-        fraud_signal=str(unified.get("fraud_signal") or "").strip() or None,
+        unified=unified,
     )
 
-    status = "<div class='help-text'>Done.</div>"
+    status = "<div class='status-line'>Done.</div>"
     return (
         status,
         *views,
@@ -306,6 +389,8 @@ def analyze_claim(
         gc_bytes,
         gc_server,
         report,
+        None,
+        REPORT_HINT_READY,
     )
 
 
@@ -313,101 +398,194 @@ def update_gradcam(image: Any, heat_bytes: Optional[bytes], is_server: bool, opa
     return composite_gradcam_view(image, heat_bytes, opacity, show, server_overlay=bool(is_server))
 
 
-def build_report_file(report: Optional[dict[str, Any]]):
+def _pipeline_bools_from_steps(pipeline: Any) -> tuple[bool, bool, bool]:
+    cnn_used = rules_used = llm_used = False
+    if not isinstance(pipeline, list):
+        return cnn_used, rules_used, llm_used
+    for st in pipeline:
+        if not isinstance(st, dict):
+            continue
+        pid = str(st.get("id") or "").lower()
+        status = str(st.get("status") or "").lower().strip()
+        if status != "used":
+            continue
+        if pid == "cnn":
+            cnn_used = True
+        elif pid == "rules":
+            rules_used = True
+        elif pid == "llm":
+            llm_used = True
+    return cnn_used, rules_used, llm_used
+
+
+def build_report(
+    *,
+    claim_id: str,
+    description: str,
+    claim_amount: float,
+    policy_limit: float,
+    unified: dict[str, Any],
+) -> dict[str, Any]:
+    cnn_label = str(unified.get("cnn_label") or "")
+    sev_raw = str(unified.get("cnn_severity") or unified.get("severity") or "").strip()
+    severity = sev_raw.upper() if sev_raw else severity_from_cnn_label(cnn_label)
+    confidence = float(unified.get("cnn_confidence") or 0.0)
+    pipeline_steps = unified.get("pipeline") if isinstance(unified.get("pipeline"), list) else []
+    cnn_used, rules_used, llm_used = _pipeline_bools_from_steps(pipeline_steps)
+    cid = (claim_id or "").strip() or str(unified.get("claim_id") or "").strip() or "CLM-HF-ANON"
+    return {
+        "claim_id": cid,
+        "description": description or "",
+        "claim_amount": float(claim_amount or 0.0),
+        "policy_limit": float(policy_limit or 0.0),
+        "fraud_score": float(unified.get("fraud_score") or 0.0),
+        "decision": str(unified.get("decision") or ""),
+        "severity": severity,
+        "cnn_label": cnn_label,
+        "confidence": confidence,
+        "pipeline": {
+            "cnn_used": cnn_used,
+            "rules_used": rules_used,
+            "llm_used": llm_used,
+        },
+    }
+
+
+def generate_report(data: dict) -> str:
+    raw_id = str(data.get("claim_id") or "claim").strip() or "claim"
+    safe = re.sub(r'[<>:"/\\|?*\s]+', "_", raw_id)[:80] or "claim"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{safe}.json")
+    tmp.close()
+    with open(tmp.name, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    return tmp.name
+
+
+def on_download_click(report: Optional[dict[str, Any]]):
     if not report:
-        return None
-    p = Path(tempfile.gettempdir()) / "insurance_claim_report.json"
-    p.write_bytes(report_json_bytes(report))
-    return str(p)
+        return None, REPORT_HINT_IDLE
+    try:
+        path = generate_report(report)
+        return path, _report_download_meta(path)
+    except Exception as e:
+        print("Report generation failed:", e)
+        return None, f"<div class='report-hint report-hint--warn'>Could not create file: {html.escape(str(e))}</div>"
 
 
 def clear_all():
+    empty = "<div class='ds-card'><div class='section-h'>{t}</div><div class='caption-text'>{b}</div></div>"
     return (
         "",
         "",
         0.0,
         1000.0,
         None,
+        None,
+        "",
+        "",
         False,
         api_client.is_configured(),
         45.0,
         False,
-        "<div class='help-text'>Ready.</div>",
-        "<div class='soft-card'><div class='section-h'>Fraud score</div><div class='help-text'>Run an analysis.</div></div>",
-        "<div class='soft-card'><div class='section-h'>Decision</div><div class='help-text'>—</div></div>",
-        "<div class='soft-card'><div class='section-h'>Model insights</div><div class='help-text'>—</div></div>",
-        "<div class='soft-card'><div class='section-h'>Explanation</div><div class='help-text'>—</div></div>",
-        "<div class='soft-card'><div class='section-h'>Breakdown</div><div class='help-text'>—</div></div>",
-        "<div class='soft-card'><div class='section-h'>Pipeline</div><div class='help-text'>—</div></div>",
-        "<div class='soft-card'><div class='section-h'>Latency</div><div class='help-text'>—</div></div>",
+        "<div class='status-line'>Ready.</div>",
+        empty.format(t="Fraud score", b="Run an analysis."),
+        empty.format(t="Decision", b="—"),
+        empty.format(t="Model insights", b="—"),
+        empty.format(t="Explanation", b="—"),
+        empty.format(t="Breakdown", b="—"),
+        empty.format(t="Pipeline", b="—"),
+        empty.format(t="Latency", b="—"),
         "",
         None,
         None,
         False,
         None,
+        None,
+        REPORT_HINT_IDLE,
         refresh_analytics_html(),
         None,
     )
 
 
 def create_demo() -> gr.Blocks:
-    ensure_demo_images(ROOT)
     css = _load_css()
     js_path = ROOT / "ui" / "scripts.js"
     js = js_path.read_text(encoding="utf-8") if js_path.exists() else None
 
-    with gr.Blocks(title="AI Insurance Claim Decision Demo") as demo:
+    with gr.Blocks(
+        title="AI Insurance Claim Decision Demo",
+        theme=gr.themes.Soft(),
+        css=css,
+    ) as demo:
         # Gradio 6+ expects these on launch(), not Blocks().
         demo._launch_kwargs = {  # type: ignore[attr-defined]
-            "css": css,
             "js": js,
-            "theme": gr.themes.Base(),
         }
         report_state = gr.State(value=None)
         heat_state = gr.State(value=None)
         heat_is_server = gr.State(value=False)
+        image_url_state = gr.State(value=None)
 
         gr.HTML(
             """
             <div id="app-header">
               <div>
                 <div id="app-title">AI Insurance Claim Decision Demo</div>
-                <div id="app-subtitle">Explainable triage • Fraud visualization • Vision + rules + LLM attribution</div>
-              </div>
-              <div class="help-text" style="font-size:12px;max-width:420px;text-align:right;">
-                Premium demo UI — configure <code>INSURANCE_API_BASE_URL</code> to stream results from your FastAPI backend.
+                <div id="app-subtitle">Explainable triage • Fraud visualization • Vision + rules + LLM. Optional live API via <code>INSURANCE_API_BASE_URL</code>.</div>
               </div>
             </div>
             """
         )
 
-        with gr.Row(equal_height=False):
-            with gr.Column(scale=1, min_width=360, elem_classes=["card"]):
-                gr.Markdown("### Claim form")
-                claim_id = gr.Textbox(label="Claim ID", placeholder="CLM-2026-000123")
+        with gr.Row(equal_height=False, elem_classes=["main-layout"]):
+            with gr.Column(scale=1, min_width=360, elem_classes=["form-panel"]):
+                gr.Markdown("### Claim form", elem_classes=["panel-title"])
+                claim_id = gr.Textbox(label="Claim ID", placeholder="CLM-2026-000123", container=True)
                 description = gr.Textbox(
                     label="Description",
                     placeholder="Describe the incident, damage, and context.",
                     lines=6,
                     elem_id="claim-desc",
+                    container=True,
                 )
                 with gr.Row():
-                    amount = gr.Number(label="Claim amount (USD)", value=250.0, minimum=0, precision=2)
-                    policy_limit = gr.Number(label="Policy limit (USD)", value=1000.0, minimum=0, precision=2)
+                    amount = gr.Number(
+                        label="Claim amount (USD)",
+                        value=250.0,
+                        minimum=0,
+                        precision=2,
+                        container=True,
+                    )
+                    policy_limit = gr.Number(
+                        label="Policy limit (USD)",
+                        value=1000.0,
+                        minimum=0,
+                        precision=2,
+                        container=True,
+                    )
 
                 image = gr.Image(label="Claim image (drag & drop)", type="pil", elem_id="image-uploader", height=240)
                 preview = gr.Image(
-                    label="Upload preview",
+                    label="Uploaded Image",
                     type="pil",
                     interactive=False,
-                    height=140,
+                    height=160,
                     elem_id="image-preview-box",
                 )
 
+                demo_img_status = gr.HTML(value="", elem_classes=["demo-status-slot"])
+                image_url_input = gr.Textbox(
+                    label="Image URL (optional)",
+                    placeholder="https://…",
+                    lines=1,
+                    max_lines=1,
+                    container=True,
+                )
+
                 with gr.Row(elem_classes=["scenario-row"]):
-                    b_low = gr.Button("Low damage – valid claim", variant="secondary")
-                    b_fraud = gr.Button("No damage – fraud case", variant="secondary")
-                    b_major = gr.Button("Major damage – high claim", variant="secondary")
+                    b_low = gr.Button("Low damage – valid claim", variant="secondary", elem_classes=["scenario-pill"])
+                    b_fraud = gr.Button("No damage – fraud case", variant="secondary", elem_classes=["scenario-pill"])
+                    b_major = gr.Button("Major damage – high claim", variant="secondary", elem_classes=["scenario-pill"])
 
                 with gr.Row():
                     fraud_sim = gr.Checkbox(label="Test fraud scenario", value=False)
@@ -416,36 +594,57 @@ def create_demo() -> gr.Blocks:
                         value=api_client.is_configured(),
                     )
 
-                with gr.Row():
-                    run_btn = gr.Button("Analyze claim", elem_id="analyze-btn", elem_classes=["submit-btn"])
-                    clear_btn = gr.Button("Clear", variant="secondary")
+                with gr.Row(elem_classes=["form-actions"]):
+                    run_btn = gr.Button("Analyze claim", elem_id="analyze-btn", elem_classes=["primary-btn"])
+                    clear_btn = gr.Button("Clear", variant="secondary", elem_classes=["btn-clear-outline"])
 
-            with gr.Column(scale=1, min_width=360, elem_classes=["card"]):
-                gr.Markdown("### Results")
-                status = gr.HTML(value="<div class='help-text'>Ready.</div>")
-                analytics_box = gr.HTML(value=refresh_analytics_html())
-                refresh_a = gr.Button("Refresh analytics", variant="secondary", scale=0)
+            with gr.Column(scale=1, min_width=360, elem_classes=["results-panel"]):
+                gr.Markdown("### Results", elem_classes=["panel-title"])
+                status = gr.HTML(value="<div class='status-line'>Ready.</div>")
+                with gr.Group(elem_classes=["card"]):
+                    analytics_box = gr.HTML(value=refresh_analytics_html())
+                    refresh_a = gr.Button("Refresh analytics", variant="secondary", scale=0, elem_classes=["btn-ghost"])
 
-                fraud_kpi = gr.HTML()
-                decision_badge = gr.HTML()
-                banner_box = gr.HTML()
-                cnn_box = gr.HTML()
-                breakdown_box = gr.HTML()
-                pipeline_box = gr.HTML()
-                latency_box = gr.HTML()
-                explanation_box = gr.HTML()
+                with gr.Column(elem_classes=["result-stack"]):
+                    banner_box = gr.HTML()
+                    with gr.Group(elem_classes=["card"]):
+                        fraud_kpi = gr.HTML()
+                    with gr.Group(elem_classes=["card"]):
+                        decision_badge = gr.HTML()
+                    with gr.Group(elem_classes=["card"]):
+                        cnn_box = gr.HTML()
+                    with gr.Group(elem_classes=["card"]):
+                        explanation_box = gr.HTML()
+                    with gr.Group(elem_classes=["card"]):
+                        breakdown_box = gr.HTML()
+                    with gr.Group(elem_classes=["card"]):
+                        pipeline_box = gr.HTML()
+                    with gr.Group(elem_classes=["card"]):
+                        latency_box = gr.HTML()
 
-                gr.Markdown("#### Grad-CAM / attention view")
-                with gr.Row():
-                    show_cam = gr.Checkbox(label="Show AI attention", value=False)
-                    cam_opacity = gr.Slider(label="Overlay opacity (%)", minimum=0, maximum=100, value=45, step=1)
-                gradcam_img = gr.Image(label="Attention overlay", type="pil", height=280)
+                with gr.Group(elem_classes=["card", "gradcam-stack"]):
+                    gr.Markdown("#### Grad-CAM / attention view", elem_classes=["panel-title", "panel-title--sm"])
+                    with gr.Row():
+                        show_cam = gr.Checkbox(label="Show AI attention", value=False)
+                        cam_opacity = gr.Slider(label="Overlay opacity (%)", minimum=0, maximum=100, value=45, step=1)
+                    gradcam_img = gr.Image(label="Attention overlay", type="pil", height=280)
 
-                with gr.Row():
-                    dl_btn = gr.Button("Download report (JSON)", variant="secondary")
-                    file_out = gr.File(label="Report file", interactive=False, visible=True)
+                report_hint = gr.HTML(value=REPORT_HINT_IDLE)
+                with gr.Row(elem_classes=["report-row"]):
+                    dl_btn = gr.Button("Download report (JSON)", variant="secondary", elem_classes=["btn-report"])
+                    report_file = gr.File(
+                        label="JSON report",
+                        interactive=False,
+                        visible=True,
+                    )
 
-        image.change(fn=mirror_preview, inputs=[image], outputs=[preview])
+        image.change(fn=on_image_change, inputs=[image, image_url_state], outputs=[preview, image_url_state])
+
+        def _clear_demo_url_on_upload() -> Optional[str]:
+            return None
+
+        if hasattr(image, "upload"):
+            image.upload(fn=_clear_demo_url_on_upload, inputs=[], outputs=[image_url_state])
 
         refresh_a.click(fn=refresh_analytics_html, inputs=[], outputs=[analytics_box])
 
@@ -464,25 +663,32 @@ def create_demo() -> gr.Blocks:
             heat_is_server,
         ]
 
-        outs = busy_targets + [report_state]
+        outs = busy_targets + [report_state, report_file, report_hint]
 
-        def _busy():
+        def _busy_shell():
+            return "<div class='ds-card'><div class='caption-text'>Updating…</div></div>"
+
+        def _busy(current_report: Optional[dict[str, Any]]):
+            sh = _busy_shell()
             return (
-                "<div class='help-text'>Analyzing claim with AI…</div>",
-                "<div class='soft-card'><div class='help-text'>Updating…</div></div>",
-                "<div class='soft-card'><div class='help-text'>Updating…</div></div>",
-                "<div class='soft-card'><div class='help-text'>Updating…</div></div>",
-                "<div class='soft-card'><div class='help-text'>Updating…</div></div>",
-                "<div class='soft-card'><div class='help-text'>Updating…</div></div>",
-                "<div class='soft-card'><div class='help-text'>Updating…</div></div>",
-                "<div class='soft-card'><div class='help-text'>Updating…</div></div>",
+                "<div class='status-line'>Analyzing claim…</div>",
+                sh,
+                sh,
+                sh,
+                sh,
+                sh,
+                sh,
+                sh,
                 "",
                 None,
                 None,
                 False,
+                current_report,
+                None,
+                REPORT_HINT_BUSY,
             )
 
-        run_evt = run_btn.click(fn=_busy, inputs=[], outputs=busy_targets)
+        run_evt = run_btn.click(fn=_busy, inputs=[report_state], outputs=outs)
         run_evt.then(
             fn=analyze_claim,
             inputs=[
@@ -491,6 +697,8 @@ def create_demo() -> gr.Blocks:
                 amount,
                 policy_limit,
                 image,
+                image_url_input,
+                image_url_state,
                 fraud_sim,
                 use_backend,
                 cam_opacity,
@@ -501,7 +709,21 @@ def create_demo() -> gr.Blocks:
         )
 
         for btn, key in ((b_low, "low"), (b_fraud, "fraud"), (b_major, "major")):
-            btn.click(fn=lambda k=key: apply_scenario(k), inputs=[], outputs=[claim_id, description, amount, policy_limit, image])
+            btn.click(
+                fn=lambda k=key: apply_scenario(k),
+                inputs=[],
+                outputs=[
+                    claim_id,
+                    description,
+                    amount,
+                    policy_limit,
+                    image,
+                    preview,
+                    image_url_state,
+                    image_url_input,
+                    demo_img_status,
+                ],
+            )
 
         clear_btn.click(
             fn=clear_all,
@@ -512,6 +734,9 @@ def create_demo() -> gr.Blocks:
                 amount,
                 policy_limit,
                 image,
+                image_url_state,
+                demo_img_status,
+                image_url_input,
                 fraud_sim,
                 use_backend,
                 cam_opacity,
@@ -529,6 +754,8 @@ def create_demo() -> gr.Blocks:
                 heat_state,
                 heat_is_server,
                 report_state,
+                report_file,
+                report_hint,
                 analytics_box,
                 preview,
             ],
@@ -541,7 +768,7 @@ def create_demo() -> gr.Blocks:
                 outputs=[gradcam_img],
             )
 
-        dl_btn.click(fn=build_report_file, inputs=[report_state], outputs=[file_out])
+        dl_btn.click(fn=on_download_click, inputs=[report_state], outputs=[report_file, report_hint])
 
         demo.load(fn=refresh_analytics_html, inputs=[], outputs=[analytics_box])
         demo.queue(default_concurrency_limit=16)

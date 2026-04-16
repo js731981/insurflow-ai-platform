@@ -121,30 +121,31 @@ def fraud_score_panel_html(score: float) -> str:
     pct = max(0.0, min(1.0, float(score))) * 100.0
     color = "#22c55e" if band_cls == "ok" else ("#f59e0b" if band_cls == "warn" else "#ef4444")
     dash = 251.2 * (1.0 - float(score))  # 2*pi*r for r=40
+    risk_words = "LOW" if band_cls == "ok" else ("MEDIUM" if band_cls == "warn" else "HIGH")
+    risk_line_cls = f"fraud-risk-line fraud-risk-line--{band_cls}"
     return f"""
-    <div class="kpi fade-in fraud-kpi">
-      <div style="flex:1;min-width:0;">
-        <div class="label">Fraud score (0–1)</div>
-        <div class="fraud-score-row">
-          <div class="gauge-wrap" aria-hidden="true">
-            <svg class="gauge-svg" viewBox="0 0 100 100">
-              <circle class="gauge-bg" cx="50" cy="50" r="40" />
-              <circle class="gauge-fg" cx="50" cy="50" r="40"
-                stroke="{html.escape(color)}"
-                stroke-dasharray="251.2"
-                stroke-dashoffset="{dash:.2f}" />
-            </svg>
-            <div class="gauge-center">{html.escape(f"{float(score):.2f}")}</div>
-          </div>
-          <div style="flex:1;min-width:0;">
-            <div class="risk-bar-label">Relative exposure</div>
-            <div class="risk-bar-track"><div class="risk-bar-fill zone-{band_cls}" style="width:{pct:.1f}%"></div></div>
-            <div class="help-text">Higher values suggest more review before payout.</div>
-          </div>
-        </div>
+    <div class="ds-card fade-in fraud-kpi">
+      <div class="section-h">Fraud score</div>
+      <div class="fraud-score-head">
+        <div class="fraud-score-big" style="color:{html.escape(color)}">{html.escape(f"{float(score):.2f}")}</div>
+        <div class="{risk_line_cls}">{html.escape(risk_words)} RISK</div>
       </div>
-      <div class="kpi-side">
-        {pill_html(band, band_cls)}
+      <div class="fraud-score-row">
+        <div class="gauge-wrap" aria-hidden="true">
+          <svg class="gauge-svg" viewBox="0 0 100 100">
+            <circle class="gauge-bg" cx="50" cy="50" r="40" />
+            <circle class="gauge-fg" cx="50" cy="50" r="40"
+              stroke="{html.escape(color)}"
+              stroke-dasharray="251.2"
+              stroke-dashoffset="{dash:.2f}" />
+          </svg>
+            <div class="gauge-center gauge-center--empty" aria-hidden="true"></div>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div class="risk-bar-label">Relative exposure (0–1)</div>
+          <div class="risk-bar-track"><div class="risk-bar-fill zone-{band_cls}" style="width:{pct:.1f}%"></div></div>
+          <div class="caption-text">Higher values suggest more review before payout.</div>
+        </div>
       </div>
     </div>
     """
@@ -171,50 +172,73 @@ def breakdown_panel_html(breakdown: dict[str, Any]) -> str:
         )
     inner = "\n".join(rows)
     return f"""
-    <div class="soft-card fade-in">
+    <div class="ds-card fade-in">
       <div class="section-h">Decision breakdown</div>
-      <div class="help-text" style="margin-bottom:10px;">Contribution-style signals (demo attribution).</div>
+      <div class="caption-text" style="margin-bottom:10px;">Contribution-style signals (demo attribution).</div>
       {inner}
     </div>
     """
 
 
-def pipeline_panel_html(steps: list[dict[str, str]]) -> str:
+def _normalize_pipeline(steps: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Merge API/local steps into fixed order: Image → CNN → Rules → LLM → Decision."""
+    by_id: dict[str, dict[str, Any]] = {}
+    if isinstance(steps, list):
+        for st in steps:
+            if not isinstance(st, dict):
+                continue
+            pid = str(st.get("id") or "").lower().strip()
+            if pid:
+                by_id[pid] = st
+    canonical = [
+        ("image", "Image", "📷", "Claim evidence"),
+        ("cnn", "CNN", "🧠", "Vision classification"),
+        ("rules", "Rules", "📋", "Policy & limits"),
+        ("llm", "LLM", "💬", "Fraud reasoning"),
+        ("decision", "Decision", "✅", "Final outcome"),
+    ]
+    out: list[dict[str, str]] = []
+    for pid, short_label, emoji, sub in canonical:
+        src = by_id.get(pid) or {}
+        status = str(src.get("status") or "skipped").lower()
+        if status not in ("used", "skipped", "failed"):
+            status = "skipped"
+        out.append(
+            {
+                "id": pid,
+                "label": short_label,
+                "emoji": emoji,
+                "sublabel": sub,
+                "status": status,
+            }
+        )
+    return out
+
+
+def pipeline_panel_html(steps: list[dict[str, Any]]) -> str:
+    norm = _normalize_pipeline(steps)
     parts = []
-    sub = {
-        "cnn": "Image classification",
-        "rules": "Business validation",
-        "llm": "Fraud reasoning",
-        "decision": "Final outcome",
-        "image": "Claim evidence",
-    }
-    for i, st in enumerate(steps):
+    for i, st in enumerate(norm):
         status = str(st.get("status") or "skipped").lower()
         cls = {"used": "st-used", "skipped": "st-skip", "failed": "st-fail"}.get(status, "st-skip")
-        raw_id = str(st.get("id") or "").lower()
         label = html.escape(str(st.get("label") or st.get("id") or "—"))
-        sublabel = html.escape(sub.get(raw_id, ""))
-        badge = status.upper()
+        icon = "✓" if status == "used" else ("–" if status == "skipped" else "×")
+        icon = html.escape(icon)
         parts.append(
             f"""
             <div class="pipe-step {cls}">
-              <div class="pipe-step-label">{label}</div>
-              <div class="pipe-step-sublabel">{sublabel}</div>
-              <div class="pipe-step-status">{html.escape(badge)}</div>
+              <span class="st-icon" aria-hidden="true">{icon}</span>
+              <span class="st-label">{label}</span>
             </div>
             """
         )
-        if i < len(steps) - 1:
+        if i < len(norm) - 1:
             parts.append('<div class="pipe-arrow" aria-hidden="true">→</div>')
     return f"""
-    <div class="soft-card fade-in">
+    <div class="ds-card fade-in">
       <div class="section-h">AI pipeline</div>
       <div class="pipe-flow">{"".join(parts)}</div>
-      <div class="pipe-legend">
-        <span><span class="dot st-used"></span> USED</span>
-        <span><span class="dot st-skip"></span> SKIPPED</span>
-        <span><span class="dot st-fail"></span> FAILED</span>
-      </div>
+      <div class="caption-text" style="margin-top:10px;">✓ Used (green) · – Skipped (grey)</div>
     </div>
     """
 
@@ -256,7 +280,7 @@ def latency_panel_html(times: dict[str, Any], pipeline: Optional[list[dict[str, 
             llm_display = "—"
 
     return f"""
-    <div class="soft-card fade-in latency-card">
+    <div class="ds-card fade-in latency-card">
       <div class="section-h">Latency</div>
       <div class="latency-grid">
         <div><span class="lat-label">Total</span><span class="lat-val">{g('total')} ms</span></div>
@@ -269,9 +293,9 @@ def latency_panel_html(times: dict[str, Any], pipeline: Optional[list[dict[str, 
 
 def analytics_panel_html(summary: Optional[dict[str, Any]], error: Optional[str] = None) -> str:
     if error:
-        return f"<div class='soft-card'><div class='section-h'>Analytics</div><div class='help-text'>{html.escape(error)}</div></div>"
+        return f"<div class='ds-card'><div class='section-h'>Analytics</div><div class='caption-text'>{html.escape(error)}</div></div>"
     if not summary:
-        return "<div class='soft-card'><div class='section-h'>Analytics</div><div class='help-text'>No data.</div></div>"
+        return "<div class='ds-card'><div class='section-h'>Analytics</div><div class='caption-text'>No data.</div></div>"
     total = int(summary.get("total_claims") or 0)
     dist = summary.get("decision_distribution") if isinstance(summary.get("decision_distribution"), dict) else {}
     appr = int(dist.get("APPROVED") or 0)
@@ -279,7 +303,7 @@ def analytics_panel_html(summary: Optional[dict[str, Any]], error: Optional[str]
     ar = round((appr / total) * 100.0, 1) if total else 0.0
     ir = round((inv / total) * 100.0, 1) if total else 0.0
     return f"""
-    <div class="soft-card fade-in analytics-card">
+    <div class="ds-card fade-in analytics-card">
       <div class="section-h">Mini analytics</div>
       <div class="analytics-grid">
         <div class="analytics-tile"><div class="analytics-num">{total}</div><div class="analytics-cap">Total claims</div></div>
@@ -297,10 +321,16 @@ def explanation_card_html(explanation: Any) -> str:
         out: list[str] = []
         for i, part in enumerate(parts):
             if i % 2 == 0:
-                out.append(html.escape(part))
+                out.append(_highlight_kv(html.escape(part)))
             else:
                 out.append(f"<code>{html.escape(part)}</code>")
         return "".join(out)
+
+    def _highlight_kv(escaped: str) -> str:
+        """Wrap currency and percentages in spans (input must already be HTML-escaped)."""
+        s = re.sub(r"(\$[\d,]+(?:\.\d+)?)", r'<span class="kv-highlight">\1</span>', escaped)
+        s = re.sub(r"([\d]+(?:\.[\d]+)?%)", r'<span class="kv-highlight">\1</span>', s)
+        return s
 
     items: list[str] = []
     if isinstance(explanation, list):
@@ -319,12 +349,12 @@ def explanation_card_html(explanation: Any) -> str:
         items = items[:10]
     bullets = "\n".join([f"<li>{_inline_code(it)}</li>" for it in items])
     return f"""
-    <div class="soft-card fade-in">
+    <div class="ds-card fade-in">
       <div class="section-h">Explanation</div>
       <div class="explanation-box">
         <ul class="expl-list">{bullets}</ul>
       </div>
-      <div class="help-text" style="margin-top:10px;font-size:12px;">
+      <div class="caption-text" style="margin-top:12px;">
         Demo disclaimer: outputs are illustrative and not an insurance decision.
       </div>
     </div>
@@ -339,9 +369,9 @@ def model_insights_html(cnn_label: str, severity: str, backend_note: str = "") -
     sev_key = sev_ui.lower()
     cls = {"low": "ok", "medium": "warn", "high": "bad", "n/a": "neutral"}.get(sev_key, "warn")
     sev_label = f"Severity: {prettify_label(sev_ui)}"
-    note = f"<div class='help-text' style='margin-top:10px;font-size:13px;'>{html.escape(backend_note)}</div>" if backend_note else ""
+    note = f"<div class='caption-text' style='margin-top:10px;font-size:13px;'>{html.escape(backend_note)}</div>" if backend_note else ""
     return f"""
-    <div class="soft-card fade-in">
+    <div class="ds-card fade-in">
       <div class="section-h">Model insights</div>
       <div class="pill-row">
         {pill_html(f"Label: {pretty}", "neutral")}
@@ -356,7 +386,7 @@ def decision_card_html(decision: str, context_tag: str | None = None) -> str:
     label, cls = decision_pill(decision)
     tag = f"<div class='decision-tag'>{html.escape(context_tag)}</div>" if context_tag else ""
     return f"""
-    <div class="soft-card fade-in">
+    <div class="ds-card fade-in">
       <div class="section-h">Decision</div>
       <div class="pill-row">{pill_html(label, cls)}</div>
       {tag}

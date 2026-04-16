@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+# Public demo thumbnails (no bundled binaries in the Space).
+DEMO_IMAGES = {
+    "no_damage": "https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5",
+    "minor_crack": "https://images.unsplash.com/photo-1580910051074-3eb694886505",
+    "major_crack": "https://images.unsplash.com/photo-1598327105666-5b89351aff97",
+}
+
 # Hugging Face Spaces typically do not allow running local Ollama.
 USE_LLM = False
 

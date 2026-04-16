@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from io import BytesIO
+from typing import Any, Optional
 
+import httpx
 import numpy as np
 from PIL import Image, ImageOps
 
@@ -12,6 +14,38 @@ class ImageSignals:
     brightness: float
     edge_density: float
     blur_score: float
+
+
+def load_image_from_url(url: str, *, timeout: float = 30.0) -> Image.Image:
+    """Download an image from a URL and return RGB PIL.Image."""
+    u = (url or "").strip()
+    if not u:
+        raise ValueError("Empty image URL")
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        response = client.get(u)
+        response.raise_for_status()
+        pil = Image.open(BytesIO(response.content))
+        return ImageOps.exif_transpose(pil).convert("RGB")
+
+
+def resolve_claim_image(
+    image: Any,
+    image_url: Optional[str],
+) -> tuple[Optional[Any], Optional[str]]:
+    """
+    Prefer an uploaded image; otherwise try ``image_url``.
+    Returns ``(effective_image, error_message)`` where ``error_message`` is set only on URL load failure.
+    """
+    if image is not None:
+        return image, None
+    raw = (image_url or "").strip()
+    if not raw:
+        return None, None
+    try:
+        pil = load_image_from_url(raw)
+        return pil, None
+    except Exception as exc:
+        return None, f"Demo image failed to load ({exc}). You can upload an image manually."
 
 
 def load_pil(image: Any) -> Image.Image:

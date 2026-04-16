@@ -5,7 +5,7 @@ Interactive Hugging Face Space for the **Insurance AI Decision Platform**: a pro
 ## Features
 
 - **Enhanced claim form** — Claim ID, narrative, claim amount, **policy limit**, and drag-and-drop image upload with live preview.
-- **Demo scenarios** — One-click presets: low-damage valid claim, no-damage fraud-style narrative, and major-damage high-value claim (loads curated images from `assets/demo_images/`).
+- **Demo scenarios** — One-click presets: low-damage valid claim, no-damage fraud-style narrative, and major-damage high-value claim (loads sample images from public Unsplash URLs; no bundled binaries).
 - **Fraud score visualization** — Radial gauge plus linear progress bar with **green (0–0.3)**, **yellow (0.3–0.7)**, and **red (0.7–1.0)** risk bands.
 - **Decision breakdown** — Horizontal contribution-style bars for **CNN**, **Rules**, and **LLM** (signed-style demo values; richer when backed by API fusion metadata).
 - **AI pipeline visual** — Horizontal flow: Image → CNN → Rules → LLM → Decision with **USED** / **SKIPPED** / **FAILED** states.
@@ -15,7 +15,7 @@ Interactive Hugging Face Space for the **Insurance AI Decision Platform**: a pro
 - **Mini analytics** — Calls **`GET /analytics/summary`** when a backend URL is configured (total claims, approval rate, investigation rate).
 - **Download report** — Exports JSON with claim inputs, decision, explanation, CNN label, fraud score, and source.
 - **Latency panel** — Total time (client-measured for API), CNN/vision processing from API when present, LLM time estimated from remainder when server omits explicit LLM timing.
-- **Dark theme** — Slate background (`#0f172a`), high-contrast text (`#e2e8f0`), accent (`#6366f1`), rounded cards and subtle motion.
+- **Clean light theme** — Gradio `Soft()` theme with a card-based layout (white cards, `#e5e7eb` borders) for a bright, demo-ready UI.
 
 ## Demo instructions
 
@@ -45,7 +45,6 @@ hf_space/
 │   ├── styles.css
 │   └── scripts.js
 ├── assets/
-│   ├── demo_images/     # generated on first run if missing
 │   └── icons/
 ├── models/
 │   └── model.pth        # optional CNN checkpoint
@@ -53,7 +52,6 @@ hf_space/
 │   ├── api_client.py
 │   ├── formatters.py
 │   ├── gradcam_utils.py
-│   ├── demo_assets.py
 │   ├── inference.py
 │   └── image_utils.py
 └── README.md

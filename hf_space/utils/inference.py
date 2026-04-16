@@ -179,6 +179,9 @@ def run_inference(description: str, amount: float, claim_limit: float, image: An
     except (TypeError, ValueError):
         limit = 0.0
 
+    if image is None:
+        raise ValueError("No image provided")
+
     cnn_label = "unknown"
     severity = "low"
     cnn_conf = 0.0
