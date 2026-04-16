@@ -86,7 +86,7 @@ def composite_gradcam_view(
     if image is None or not show:
         return image
     try:
-        from hf_space.utils.image_utils import load_pil
+        from utils.image_utils import load_pil
 
         base = load_pil(image)
     except Exception:

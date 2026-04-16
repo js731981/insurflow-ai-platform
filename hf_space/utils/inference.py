@@ -7,8 +7,8 @@ from typing import Any, Optional
 
 import numpy as np
 
-from hf_space import config
-from hf_space.utils.image_utils import extract_signals, heuristic_damage_label, load_pil, pil_to_torch_tensor, resize_rgb
+import config
+from utils.image_utils import extract_signals, heuristic_damage_label, load_pil, pil_to_torch_tensor, resize_rgb
 
 
 @dataclass(frozen=True)

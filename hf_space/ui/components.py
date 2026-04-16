@@ -10,9 +10,9 @@ from typing import Any, Optional
 
 import gradio as gr
 
-from hf_space.config import DEMO_IMAGES
-from hf_space.utils import api_client
-from hf_space.utils.formatters import (
+from config import DEMO_IMAGES
+from utils import api_client
+from utils.formatters import (
     analytics_panel_html,
     breakdown_panel_html,
     decision_card_html,
@@ -25,13 +25,13 @@ from hf_space.utils.formatters import (
     pipeline_panel_html,
     severity_from_cnn_label,
 )
-from hf_space.utils.gradcam_utils import (
+from utils.gradcam_utils import (
     composite_gradcam_view,
     compute_edge_attention_map,
     pil_to_png_bytes,
 )
-from hf_space.utils.image_utils import load_image_from_url, load_pil, resolve_claim_image
-from hf_space.utils.inference import run_inference
+from utils.image_utils import load_image_from_url, load_pil, resolve_claim_image
+from utils.inference import run_inference
 
 ROOT = Path(__file__).resolve().parents[1]
 
