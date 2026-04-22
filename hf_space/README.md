@@ -8,6 +8,7 @@ sdk_version: "4.31.0"
 python_version: "3.10"
 app_file: app.py
 pinned: false
+short_description: Insurance AI claim decision engine demo
 ---
 
 # AI Insurance Claim Decision Demo (Baseline)
